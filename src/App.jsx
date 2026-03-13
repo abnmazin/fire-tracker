@@ -805,6 +805,7 @@ function TransferModal({ exts, onClose, onSubmit }) {
   );
 }
 
+
 // 8. سجل التغييرات
 function AuditLogsList({ logs, userRole }) {
   if (userRole === 'member') return <div className="p-8 text-center text-red-500">عذراً، ليس لديك صلاحية.</div>;
