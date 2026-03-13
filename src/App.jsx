@@ -43,7 +43,6 @@ try {
   console.error("خطأ في تهيئة فايربيس:", e);
 }
 // ==========================================
-// ==========================================
 
 // دالة مساعدة لحفظ البيانات احتياطياً في LocalStorage
 function useLocalStorage(key, initialValue) {
@@ -129,11 +128,7 @@ export default function App() {
     if (!auth) return;
     const initAuth = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
+        await signInAnonymously(auth);
       } catch (e) { console.error("Firebase Auth Error:", e); }
     };
     initAuth();
@@ -217,10 +212,12 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row font-sans text-right" dir="rtl">
+    // قمنا هنا بتفعيل App Shell Layout بحيث تكون الشاشة مقفلة ولا يمرر إلا المحتوى
+    <div className="bg-gray-50 flex flex-col md:flex-row font-sans text-right min-h-screen md:h-screen md:overflow-hidden" dir="rtl">
+      
       {/* القائمة الجانبية */}
-      <aside className="w-full md:w-64 bg-red-800 text-white flex flex-col shadow-xl md:min-h-screen z-20 sticky top-0 md:relative">
-        <div className="p-4 md:p-6 flex justify-between items-center md:flex-col border-b border-red-700">
+      <aside className="w-full md:w-64 bg-red-800 text-white flex flex-col shadow-2xl z-50 sticky top-0 flex-shrink-0 md:h-screen">
+        <div className="p-3 md:p-6 flex justify-between items-center md:flex-col border-b border-red-700 bg-red-800 relative z-20">
           <div className="flex items-center md:flex-col gap-3 md:gap-0">
             <img 
               src="https://images.unsplash.com/photo-1591604129939-f1efa4d9f7fa?w=150&h=150&fit=crop" 
@@ -240,7 +237,8 @@ export default function App() {
           </button>
         </div>
         
-        <div className={`${isMobileMenuOpen ? 'flex' : 'hidden'} md:flex flex-col flex-1 absolute md:relative top-full left-0 right-0 bg-red-800 md:bg-transparent shadow-xl md:shadow-none`}>
+        {/* قائمة الأزرار (تظهر كطبقة منسدلة في الموبايل أو عمودية في اللابتوب) */}
+        <div className={`${isMobileMenuOpen ? 'flex' : 'hidden'} md:flex flex-col flex-1 absolute md:static top-full left-0 right-0 bg-red-800 shadow-2xl md:shadow-none w-full max-h-[85vh] md:max-h-none overflow-y-auto border-b border-red-900 md:border-none`}>
           <div className="p-4 border-b border-red-700/50 flex md:flex-col justify-between md:justify-center items-center md:text-center bg-red-900/30">
             <p className="text-sm text-red-100">مرحباً، {currentUser.name}</p>
             <span className="text-xs bg-red-700 md:bg-red-900 px-2 py-1 rounded-full md:mt-2 shadow-sm border border-red-600">
@@ -259,7 +257,7 @@ export default function App() {
             )}
           </nav>
 
-          <div className="p-4 border-t border-red-700 mt-auto">
+          <div className="p-4 border-t border-red-700 mt-auto pb-6 md:pb-4">
             <button 
               onClick={() => setCurrentUser(null)}
               className="flex items-center w-full p-2 text-red-200 hover:text-white hover:bg-red-700 rounded-lg transition-colors md:mb-4"
@@ -276,7 +274,7 @@ export default function App() {
       </aside>
 
       {/* المحتوى الرئيسي */}
-      <main className="flex-1 p-4 md:p-6 overflow-y-auto w-full max-w-full relative z-10">
+      <main className="flex-1 p-4 md:p-6 overflow-y-auto w-full max-w-full relative z-10 bg-gray-50">
         {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={handleSaveContacts} user={currentUser} />}
         {currentView === 'list' && (
           <ExtinguishersList 
