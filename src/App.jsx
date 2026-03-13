@@ -568,6 +568,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, use
               <th className="p-3">آخر فحص</th>
               <th className="p-3">الفحص القادم</th>
               <th className="p-3">الحالة</th>
+              <th className="p-3">ملاحظات</th>
               <th className="p-3 text-center">الإجراءات</th>
             </tr>
           </thead>
@@ -595,6 +596,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, use
                     {ext.status}
                   </span>
                 </td>
+                <td className="p-3 text-gray-500 text-xs max-w-[120px] truncate" title={ext.notes}>{ext.notes || '-'}</td>
                 <td className="p-3 text-center">
                   <div className="flex justify-center gap-2">
                     <button onClick={() => setInspectModalData(ext)} className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-1.5 rounded text-xs font-medium transition-colors">فحص</button>
@@ -649,6 +651,13 @@ function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, use
               <div className="col-span-2 pt-2 border-t border-gray-200/60"><span className="text-gray-400 block text-[10px] mb-0.5">موعد الفحص القادم</span><span className="font-bold text-gray-800">{ext.nextDate}</span></div>
             </div>
             
+            {ext.notes && (
+              <div className="text-xs bg-yellow-50 text-yellow-800 p-2.5 rounded-lg border border-yellow-100 flex items-start">
+                <FileText className="w-4 h-4 ml-1.5 shrink-0 mt-0.5 text-yellow-600" />
+                <span><strong className="font-bold">ملاحظة: </strong>{ext.notes}</span>
+              </div>
+            )}
+
             {/* Footer: Actions */}
             <div className="flex gap-2 pt-1">
               <button onClick={() => setInspectModalData(ext)} className="flex-1 bg-blue-50 text-blue-600 hover:bg-blue-100 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center">فحص</button>
@@ -797,7 +806,7 @@ function AddUserModal({ onClose, onAdd, currentUser }) {
 
 // 7. نافذة ترحيل
 function TransferModal({ exts, onClose, onSubmit }) {
-  const [newLocation, setNewLocation] = useStaاte(LOCATIONS[0]);
+  const [newLocation, setNewLocation] = useState(LOCATIONS[0]);
   const handleSubmit = (e) => { e.preventDefault(); if(newLocation.trim() !== '') onSubmit(exts.map(e => e.id), newLocation); };
   const isSingle = exts.length === 1;
   return (
@@ -805,11 +814,35 @@ function TransferModal({ exts, onClose, onSubmit }) {
   );
 }
 
-
 // 8. سجل التغييرات
 function AuditLogsList({ logs, userRole }) {
   if (userRole === 'member') return <div className="p-8 text-center text-red-500">عذراً، ليس لديك صلاحية.</div>;
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6 w-full"><h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center"><ClipboardList className="w-6 h-6 ml-2 text-red-600" />سجل النشاطات</h2><div className="overflow-x-auto w-full"><table className="w-full text-right min-w-[600px]"><thead className="bg-gray-50 text-gray-600 text-sm"><tr><th className="p-3">التاريخ والوقت</th><th className="p-3">المستخدم</th><th className="p-3">الإجراء</th><th className="p-3">التفاصيل</th></tr></thead><tbody className="divide-y divide-gray-100 text-sm">{logs.length === 0 ? <tr><td colSpan="4" className="p-8 text-center text-gray-500">لا توجد سجلات.</td></tr> : logs.map(log => <tr key={log.id} className="hover:bg-gray-50"><td className="p-3 text-gray-500 whitespace-nowrap" dir="ltr">{log.date}</td><td className="p-3 font-medium text-blue-700 whitespace-nowrap">{log.userName}</td><td className="p-3"><span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-lg text-[11px] font-bold border whitespace-nowrap">{log.action}</span></td><td className="p-3 text-gray-700 min-w-[200px]">{log.details}</td></tr>)}</tbody></table></div></div>
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6 w-full">
+      <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center"><ClipboardList className="w-6 h-6 ml-2 text-red-600" />سجل النشاطات</h2>
+      
+      {/* العرض الخاص بالشاشات الكبيرة (جدول) */}
+      <div className="hidden md:block overflow-x-auto w-full">
+        <table className="w-full text-right min-w-[600px]"><thead className="bg-gray-50 text-gray-600 text-sm"><tr><th className="p-3">التاريخ والوقت</th><th className="p-3">المستخدم</th><th className="p-3">الإجراء</th><th className="p-3">التفاصيل</th></tr></thead><tbody className="divide-y divide-gray-100 text-sm">{logs.length === 0 ? <tr><td colSpan="4" className="p-8 text-center text-gray-500">لا توجد سجلات.</td></tr> : logs.map(log => <tr key={log.id} className="hover:bg-gray-50"><td className="p-3 text-gray-500 whitespace-nowrap" dir="ltr">{log.date}</td><td className="p-3 font-medium text-blue-700 whitespace-nowrap">{log.userName}</td><td className="p-3"><span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-lg text-[11px] font-bold border whitespace-nowrap">{log.action}</span></td><td className="p-3 text-gray-700 min-w-[200px]">{log.details}</td></tr>)}</tbody></table>
+      </div>
+
+      {/* العرض الخاص بالموبايل (بطاقات متراصة) */}
+      <div className="md:hidden flex flex-col gap-3">
+        {logs.length === 0 ? (
+          <div className="p-8 text-center text-gray-500 bg-gray-50 rounded-xl border border-gray-100">لا توجد سجلات.</div>
+        ) : (
+          logs.map(log => (
+            <div key={log.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col gap-2 relative">
+              <div className="flex justify-between items-start mb-1">
+                <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-md text-[10px] font-bold border">{log.action}</span>
+                <span className="text-gray-400 text-[10px]" dir="ltr">{log.date}</span>
+              </div>
+              <div className="text-sm font-bold text-blue-700">{log.userName}</div>
+              <div className="text-xs text-gray-700 leading-relaxed bg-gray-50 p-2 rounded border border-gray-200">{log.details}</div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
