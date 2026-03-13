@@ -74,11 +74,9 @@ const calculateNextDate = (lastDateStr) => {
   return d.toISOString().split('T')[0];
 };
 
-// التحديث الجديد لحساب الحالة (يجمع بين الصيانة والفحص اليومي)
 const calculateStatus = (nextDateStr, lastInspectionStr) => {
   if (!nextDateStr) return 'مجهولة';
   
-  // 1. التحقق من صلاحية الصيانة (6 أشهر)
   const next = new Date(nextDateStr);
   const now = new Date();
   const diffDays = Math.ceil((next - now) / (1000 * 60 * 60 * 24));
@@ -86,7 +84,6 @@ const calculateStatus = (nextDateStr, lastInspectionStr) => {
   if (diffDays < 0) return 'تحتاج صيانة';
   if (diffDays <= 14) return 'صيانة قريبة'; 
 
-  // 2. التحقق من الفحص اليومي (إذا كانت الصيانة صالحة)
   const todayStr = new Date().toISOString().split('T')[0];
   if (lastInspectionStr !== todayStr) return 'تحتاج فحص';
 
@@ -133,7 +130,6 @@ export default function App() {
       else {
         setExtinguishers(snap.docs.map(d => {
           const data = d.data();
-          // حساب الحالة بالاعتماد على المتغيرين
           return { ...data, status: calculateStatus(data.nextDate, data.lastInspection || data.lastDate) };
         }));
       }
@@ -165,7 +161,16 @@ export default function App() {
     const d = new Date();
     const dateString = d.toLocaleString('ar-EG');
     const dayString = d.toLocaleDateString('ar-EG', { year: 'numeric', month: 'numeric', day: 'numeric' });
-    const newLog = { id: Date.now(), date: dateString, dayStr: dayString, userName: currentUser?.name || 'مجهول', action, details };
+    
+    const newLog = { 
+      id: Date.now(), 
+      date: dateString, 
+      dayStr: dayString, 
+      userName: currentUser?.name || 'مجهول', 
+      action, 
+      details 
+    };
+
     if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(newLog.id)), newLog).catch(()=>{});
     else setAuditLogs(prev => [newLog, ...prev]);
   };
@@ -278,10 +283,6 @@ export default function App() {
     </div>
   );
 }
-
-// ==========================================
-// Components
-// ==========================================
 
 function SidebarBtn({ icon: Icon, label, active, onClick }) {
   return (
@@ -412,11 +413,10 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
   const [filterType, setFilterType] = useState('All');
   const [filterLocation, setFilterLocation] = useState('All');
   const [showAddModal, setShowAddModal] = useState(false);
-  const [actionModalData, setActionModalData] = useState(null); // المودل الموحد للفحص والصيانة
+  const [actionModalData, setActionModalData] = useState(null); 
   const [transferModalData, setTransferModalData] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
   const [editModalData, setEditModalData] = useState(null);
-  const [bulkDeleteConfirmData, setBulkDeleteConfirmData] = useState(null);
   const [showCustomSelectModal, setShowCustomSelectModal] = useState(false);
 
   const canEdit = user.role === 'developer' || user.role === 'admin' || user.role === 'father';
@@ -437,7 +437,6 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
     logAction('إضافة طفاية', `إضافة طفاية ${newExt.number} في ${newExt.location}`);
   };
 
-  // دالة موحدة للفحص اليومي والصيانة
   const handleActionSubmit = (extIds, actionType, condition, remarks, date) => {
     const extsToUpdate = extinguishers.filter(e => extIds.includes(e.id));
     const isMaintenance = actionType === 'maintenance';
@@ -484,16 +483,15 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
   };
 
   const handleBulkDelete = () => {
-    if (!bulkDeleteConfirmData || bulkDeleteConfirmData.length === 0) return;
-    const extsToDelete = extinguishers.filter(e => bulkDeleteConfirmData.includes(e.id));
+    if (selectedIds.length === 0) return;
+    const extsToDelete = extinguishers.filter(e => selectedIds.includes(e.id));
     if (db && fbUser) {
-      bulkDeleteConfirmData.forEach(id => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(id))).catch(()=>{}));
-    } else { setExtinguishers(prev => prev.filter(e => !bulkDeleteConfirmData.includes(e.id))); }
-    logAction('حذف طفايات', `حذف نهائي لـ (${bulkDeleteConfirmData.length}) طفاية: ${extsToDelete.map(e=>e.number).join('، ')}`);
-    setBulkDeleteConfirmData(null); setSelectedIds([]);
+      selectedIds.forEach(id => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(id))).catch(()=>{}));
+    } else { setExtinguishers(prev => prev.filter(e => !selectedIds.includes(e.id))); }
+    logAction('حذف طفايات', `حذف نهائي لـ (${selectedIds.length}) طفاية: ${extsToDelete.map(e=>e.number).join('، ')}`);
+    setSelectedIds([]);
   };
 
-  // دالة التحديد المخصص
   const applyCustomSelection = (text) => {
     const numbers = text.match(/\d+/g) || [];
     const targetNumbers = numbers.map(n => `EXT-${String(n).padStart(3, '0')}`);
@@ -510,9 +508,13 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
   };
 
   const transferrableCount = filtered.filter(e => selectedIds.includes(e.id) && !e.inCabinet).length;
+  
+  // دالة تأكيد الحذف الخاصة بالقائمة
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   return (
     <div className="space-y-4">
+      {/* شريط الأدوات والفلاتر */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative z-20">
         <h2 className="text-xl font-bold text-gray-800">دليل الطفايات</h2>
         <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto flex-wrap sm:flex-nowrap items-center">
@@ -527,7 +529,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
               <>
                 <button onClick={() => setActionModalData(extinguishers.filter(e => selectedIds.includes(e.id)))} className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-4 py-2 rounded-lg flex items-center justify-center transition-colors shadow-sm text-sm whitespace-nowrap"><Activity className="w-4 h-4 ml-1" /> إجراء جماعي ({selectedIds.length})</button>
                 {canEdit && <button onClick={() => setTransferModalData(extinguishers.filter(e => selectedIds.includes(e.id) && !e.inCabinet))} disabled={transferrableCount === 0} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg flex items-center justify-center transition-colors shadow-sm text-sm whitespace-nowrap ${transferrableCount === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}><ArrowRightLeft className="w-4 h-4 ml-1" /> ترحيل ({transferrableCount})</button>}
-                {canEdit && <button onClick={() => setBulkDeleteConfirmData(selectedIds)} className="flex-1 sm:flex-none bg-red-100 hover:bg-red-200 text-red-700 px-3 py-2 rounded-lg flex items-center justify-center transition-colors shadow-sm text-sm"><Trash2 className="w-4 h-4" /></button>}
+                {canEdit && <button onClick={() => setConfirmDialog({ title: 'تأكيد الحذف', message: `هل أنت متأكد من رغبتك في حذف (${selectedIds.length}) طفاية بشكل نهائي؟`, action: handleBulkDelete, isDestructive: true })} className="flex-1 sm:flex-none bg-red-100 hover:bg-red-200 text-red-700 px-3 py-2 rounded-lg flex items-center justify-center transition-colors shadow-sm text-sm"><Trash2 className="w-4 h-4" /></button>}
               </>
             )}
             {canEdit && <button onClick={() => setShowAddModal(true)} className="flex-1 sm:flex-none bg-red-600 hover:bg-red-700 text-white px-3 sm:px-4 py-2 rounded-lg flex items-center justify-center transition-colors text-sm whitespace-nowrap shadow-sm"><Plus className="w-4 h-4 sm:w-5 sm:h-5 ml-1" /> إضافة</button>}
@@ -535,6 +537,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
         </div>
       </div>
 
+      {/* أدوات التحديد السريع */}
       <div className="flex gap-2 flex-wrap items-center bg-gray-100 p-2 rounded-lg border border-gray-200">
         <label className="flex items-center gap-2 cursor-pointer bg-white px-3 py-1.5 rounded shadow-sm border">
           <input type="checkbox" className="w-4 h-4 text-red-600 rounded cursor-pointer" onChange={(e) => setSelectedIds(e.target.checked ? filtered.map(ext => ext.id) : [])} checked={filtered.length > 0 && selectedIds.length === filtered.length} />
@@ -546,6 +549,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
         {selectedIds.length > 0 && <span className="text-xs bg-red-100 text-red-700 px-3 py-1 rounded-full font-bold">{selectedIds.length} محدد</span>}
       </div>
 
+      {/* العرض الخاص بالشاشات الكبيرة */}
       <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden w-full relative z-10">
         <table className="w-full text-right"><thead className="bg-gray-50 text-gray-600 font-medium text-sm"><tr><th className="p-3 w-10 text-center"></th><th className="p-3">الرقم</th><th className="p-3">النوع والحجم</th><th className="p-3">الموقع</th><th className="p-3">آخر فحص (يومي)</th><th className="p-3">موعد الصيانة (6 أشهر)</th><th className="p-3">الحالة</th><th className="p-3">ملاحظات</th><th className="p-3 text-center">إجراءات</th></tr></thead><tbody className="divide-y divide-gray-100 text-sm">
             {filtered.map(ext => (
@@ -566,6 +570,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
           </tbody></table>
       </div>
 
+      {/* العرض الخاص بالموبايل */}
       <div className="md:hidden flex flex-col gap-4">
         {filtered.map(ext => (
           <div key={ext.id} className={`bg-white rounded-xl shadow-sm border flex flex-col gap-3 p-4 transition-colors ${selectedIds.includes(ext.id) ? 'border-red-300 bg-red-50' : 'border-gray-100'}`}>
@@ -592,12 +597,14 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
       {actionModalData && <ActionModal exts={actionModalData} onClose={() => setActionModalData(null)} onSubmit={handleActionSubmit} userRole={user.role} />}
       {editModalData && <EditExtinguisherModal ext={editModalData} onClose={() => setEditModalData(null)} onEdit={handleEdit} locations={locations} />}
       {transferModalData && <TransferModal exts={transferModalData} onClose={() => setTransferModalData(null)} onSubmit={handleTransfer} locations={locations} />}
-      {bulkDeleteConfirmData && <ConfirmBulkDeleteModal count={bulkDeleteConfirmData.length} onClose={() => setBulkDeleteConfirmData(null)} onConfirm={handleBulkDelete} />}
+      
+      {/* نافذة التأكيد */}
+      {confirmDialog && <CustomConfirmModal title={confirmDialog.title} message={confirmDialog.message} isDestructive={confirmDialog.isDestructive} onConfirm={confirmDialog.action} onClose={() => setConfirmDialog(null)} />}
     </div>
   );
 }
 
-// نافذة التحديد المخصص الجديدة
+// نافذة التحديد المخصص
 function CustomSelectModal({ onClose, onApply }) {
   const [text, setText] = useState('');
   const handleSubmit = (e) => { e.preventDefault(); onApply(text); };
@@ -615,9 +622,9 @@ function CustomSelectModal({ onClose, onApply }) {
   );
 }
 
-// نافذة الإجراءات الموحدة (Action Modal) للفحص والصيانة
+// نافذة الإجراءات الموحدة
 function ActionModal({ exts, onClose, onSubmit, userRole }) {
-  const [actionType, setActionType] = useState('inspection'); // 'inspection' or 'maintenance'
+  const [actionType, setActionType] = useState('inspection'); 
   const [condition, setCondition] = useState('سليمة');
   const [remarks, setRemarks] = useState(exts.length === 1 ? (exts[0].notes || '') : ''); 
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -638,8 +645,6 @@ function ActionModal({ exts, onClose, onSubmit, userRole }) {
           <p className="text-sm text-blue-100 opacity-90 mt-1">{isSingle ? `رقم: ${exts[0].number}` : `العدد: ${exts.length} طفايات محددة`}</p>
         </div>
         <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-5">
-          
-          {/* نوع الإجراء (Tab/Radio) */}
           <div className="flex bg-gray-100 p-1 rounded-lg border border-gray-200">
             <button type="button" onClick={() => setActionType('inspection')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-colors ${actionType === 'inspection' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>فحص ميداني (يومي)</button>
             {canDoMaintenance ? (
@@ -660,7 +665,6 @@ function ActionModal({ exts, onClose, onSubmit, userRole }) {
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-1">ملاحظات (اختياري)</label>
             <textarea className="w-full border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 h-24 text-sm outline-none bg-gray-50" value={remarks} onChange={e => setRemarks(e.target.value)} placeholder={isSingle ? "امسح النص لإلغاء الملاحظة السابقة..." : "ستطبق هذه الملاحظة على جميع الطفايات المحددة..."} />
-            {isSingle && remarks && <p className="text-[10px] text-orange-500 mt-1">* تم جلب الملاحظة السابقة، قم بمسحها إذا تم حل المشكلة.</p>}
           </div>
           
           <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-bold hover:bg-blue-700 shadow-md">تأكيد وحفظ</button><button type="button" onClick={onClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-2.5 rounded-lg font-bold transition-colors">إلغاء</button></div>
@@ -714,7 +718,7 @@ function EditExtinguisherModal({ ext, onClose, onEdit, locations }) {
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto">
         <div className="bg-green-600 text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg">تعديل بيانات الطفاية</h3><button onClick={onClose} className="text-green-200 hover:text-white p-1">&times;</button></div>
         <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">
-          <div><label className="block text-sm text-gray-600 mb-1">رقم الطفاية</label><input required type="text" className="w-full border p-2 rounded bg-gray-200 text-gray-600 font-bold outline-none cursor-not-allowed" value={formData.number} disabled dir="ltr" /><p className="text-[10px] text-gray-400 mt-1">لا يمكن تغيير الرقم بعد الإنشاء.</p></div>
+          <div><label className="block text-sm text-gray-600 mb-1">رقم الطفاية</label><input required type="text" className="w-full border p-2 rounded bg-gray-200 text-gray-600 font-bold outline-none cursor-not-allowed" value={formData.number} disabled dir="ltr" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 bg-gray-50 outline-none" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option></select></div>
             <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 bg-gray-50 outline-none" value={formData.size} onChange={e => setFormData({...formData, size: e.target.value})} /></div>
@@ -722,6 +726,7 @@ function EditExtinguisherModal({ ext, onClose, onEdit, locations }) {
           <div><label className="block text-sm text-gray-600 mb-1">الموقع الرئيسي</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 bg-gray-50 outline-none" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})}>{locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}</select></div>
           <div><label className="block text-sm text-gray-600 mb-1">الموقع الفرعي (اختياري)</label><input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 bg-gray-50 outline-none" value={formData.subLocation || ''} onChange={e => setFormData({...formData, subLocation: e.target.value})} /></div>
           <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="editInCabinet" className="w-4 h-4 text-green-600 rounded focus:ring-green-500 cursor-pointer" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="editInCabinet" className="text-sm font-bold text-gray-700 cursor-pointer select-none">مثبتة داخل كابينة</label></div>
+          <div><label className="block text-sm text-gray-600 mb-1">تاريخ آخر صيانة شاملة</label><input required type="date" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
           <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-green-600 text-white py-2.5 rounded-lg font-bold hover:bg-green-700 shadow-md">حفظ التعديلات</button><button type="button" onClick={onClose} className="flex-1 bg-gray-100 text-gray-800 py-2.5 rounded-lg font-bold hover:bg-gray-200">إلغاء</button></div>
         </form>
       </div>
@@ -729,6 +734,351 @@ function EditExtinguisherModal({ ext, onClose, onEdit, locations }) {
   );
 }
 
-// ... (باقي المكونات مثل DeveloperSettings وغيرها تظل كما هي في الرد السابق)
+function CustomConfirmModal({ title, message, isDestructive, onConfirm, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden my-auto p-6 text-center transform transition-all">
+        <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${isDestructive ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+          <AlertTriangle className="w-8 h-8" />
+        </div>
+        <h3 className="text-xl font-bold text-gray-800 mb-2">{title}</h3>
+        <p className="text-sm text-gray-600 mb-6 leading-relaxed">{message}</p>
+        <div className="flex gap-3">
+          <button onClick={() => { onConfirm(); onClose(); }} className={`flex-1 text-white py-2.5 rounded-lg font-bold transition-colors shadow-md ${isDestructive ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>تأكيد</button>
+          <button onClick={onClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-2.5 rounded-lg font-bold transition-colors">إلغاء</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TransferModal({ exts, onClose, onSubmit, locations }) {
+  const [newLocation, setNewLocation] = useState(locations[0] || '');
+  const handleSubmit = (e) => { e.preventDefault(); if(newLocation.trim() === '') return; onSubmit(exts.map(e => e.id), newLocation); };
+  const isSingle = exts.length === 1;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto"><div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto"><div className="bg-purple-600 text-white p-4"><h3 className="font-bold text-lg flex items-center"><ArrowRightLeft className="w-5 h-5 ml-2" /> {isSingle ? 'ترحيل الطفاية' : 'ترحيل جماعي'}</h3><p className="text-sm text-purple-100 opacity-90 mt-1">{isSingle ? `رقم: ${exts[0].number}` : `العدد: ${exts.length}`}</p></div><form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">{isSingle && (<div><label className="block text-sm text-gray-600 mb-1">الموقع الحالي</label><input type="text" disabled className="w-full border p-2 rounded bg-gray-100 text-gray-500" value={exts[0].location} /></div>)}<div><label className="block text-sm text-gray-600 mb-1">الموقع الجديد</label><select required className="w-full border p-2 rounded focus:ring-2 focus:ring-purple-500" value={newLocation} onChange={e => setNewLocation(e.target.value)}>{locations.map(loc => <option key={loc} value={loc} disabled={isSingle && exts[0].location === loc}>{loc}</option>)}</select></div><div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-purple-600 text-white py-2.5 rounded-lg font-medium flex justify-center items-center">تأكيد الترحيل</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium">إلغاء</button></div></form></div></div>
+  );
+}
+
+function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId }) {
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  if (currentUser.role === 'member') return <div className="p-8 text-center text-red-500">عذراً، ليس لديك صلاحية.</div>;
+
+  const handleAddUser = (newUser) => {
+    const newId = users.length ? Math.max(...users.map(u => Number(u.id))) + 1 : 1;
+    const userObj = { ...newUser, id: newId };
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(newId)), userObj).catch(()=>{});
+    else setUsers([...users, userObj]);
+    setShowAddModal(false);
+    logAction('إضافة مستخدم', `إضافة حساب "${newUser.name}"`);
+  };
+
+  const handleDeleteUser = (id, name) => {
+    if (id === currentUser.id) return; 
+    if (db && fbUser) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(id))).catch(()=>{});
+    else setUsers(users.filter(u => u.id !== id));
+    logAction('حذف مستخدم', `حذف حساب "${name}"`);
+  };
+
+  const canSeePassword = (targetRole) => currentUser.role === 'developer' || ((currentUser.role === 'admin' || currentUser.role === 'father') && targetRole !== 'developer');
+  const canDelete = (targetId, targetRole) => targetId !== currentUser.id && (currentUser.role === 'developer' || ((currentUser.role === 'admin' || currentUser.role === 'father') && targetRole !== 'developer' && targetRole !== 'father'));
+
+  const getRoleLabel = (role) => {
+    if (role === 'developer') return 'مبرمج';
+    if (role === 'father') return 'مشرف عام';
+    if (role === 'admin') return 'مسؤول';
+    return 'مفتش';
+  };
+  const getRoleBadgeColor = (role) => {
+    if (role === 'developer') return 'bg-purple-100 text-purple-700';
+    if (role === 'father') return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+    if (role === 'admin') return 'bg-blue-100 text-blue-700';
+    return 'bg-gray-100 text-gray-700';
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6 w-full relative z-10">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3"><h2 className="text-xl font-bold text-gray-800">فريق العمل</h2><button onClick={() => setShowAddModal(true)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center transition-colors text-sm font-medium"><UserPlus className="w-4 h-4 ml-2" /> إضافة مستخدم</button></div>
+      <div className="hidden md:block overflow-x-auto w-full">
+        <table className="w-full text-right min-w-[500px]"><thead className="bg-gray-50 text-gray-600 text-sm"><tr><th className="p-3">الاسم</th><th className="p-3">الحساب</th><th className="p-3">المرور</th><th className="p-3">الصلاحية</th><th className="p-3 text-center">إجراء</th></tr></thead><tbody className="divide-y divide-gray-100 text-sm">
+            {users.map(u => (
+              <tr key={u.id} className="hover:bg-gray-50">
+                <td className="p-3 font-medium">{u.name}</td><td className="p-3 text-gray-600" dir="ltr">{u.username}</td>
+                <td className="p-3 text-gray-400 font-mono tracking-widest">{canSeePassword(u.role) ? u.password : '••••••'}</td>
+                <td className="p-3"><span className={`px-2 py-1 rounded-full text-[11px] font-bold border ${getRoleBadgeColor(u.role)}`}>{getRoleLabel(u.role)}</span></td>
+                <td className="p-3 text-center">{canDelete(u.id, u.role) ? (<button onClick={() => handleDeleteUser(u.id, u.name)} className="text-red-500 hover:text-red-700 bg-red-50 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center justify-center mx-auto"><Trash2 className="w-3 h-3 ml-1" /> حذف</button>) : (<span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-1 rounded">غير مصرح</span>)}</td>
+              </tr>
+            ))}
+          </tbody></table>
+      </div>
+      <div className="md:hidden flex flex-col gap-3">
+        {users.map(u => (
+          <div key={u.id} className="bg-gray-50 border border-gray-100 rounded-lg p-4 flex flex-col gap-3 relative">
+            <div className="flex justify-between items-start"><span className="font-bold text-gray-800">{u.name}</span><span className={`px-2 py-1 rounded-full text-[10px] font-bold border ${getRoleBadgeColor(u.role)}`}>{getRoleLabel(u.role)}</span></div>
+            <div className="text-sm text-gray-600 bg-white p-2 rounded border">الحساب: <span dir="ltr" className="font-medium text-gray-800">{u.username}</span></div>
+            <div className="text-sm text-gray-600 bg-white p-2 rounded border">كلمة المرور: <span dir="ltr" className="text-gray-400 font-mono tracking-widest">{canSeePassword(u.role) ? u.password : '••••••'}</span></div>
+            {canDelete(u.id, u.role) && <button onClick={() => handleDeleteUser(u.id, u.name)} className="w-full mt-1 bg-red-50 text-red-600 py-2 rounded-lg text-sm font-medium flex justify-center items-center"><Trash2 className="w-4 h-4 ml-1" /> حذف</button>}
+          </div>
+        ))}
+      </div>
+      {showAddModal && <AddUserModal onClose={() => setShowAddModal(false)} onAdd={handleAddUser} currentUser={currentUser} />}
+    </div>
+  );
+}
+
+function AddUserModal({ onClose, onAdd, currentUser }) {
+  const [formData, setFormData] = useState({ name: '', username: '', password: '', role: 'member' });
+  const handleSubmit = (e) => { e.preventDefault(); onAdd(formData); };
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto"><div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto"><div className="bg-blue-600 text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg">إضافة مستخدم</h3><button onClick={onClose} className="text-blue-200 hover:text-white p-1">&times;</button></div><form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4"><div><label className="block text-sm text-gray-600 mb-1">الاسم الكامل</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div><div><label className="block text-sm text-gray-600 mb-1">الحساب</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} dir="ltr" /></div><div><label className="block text-sm text-gray-600 mb-1">المرور</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} dir="ltr" /></div><div><label className="block text-sm text-gray-600 mb-1">الصلاحية</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}><option value="member">مفتش (محدودة)</option><option value="admin">مسؤول (إدارة)</option>{currentUser.role === 'developer' && (<><option value="father">مشرف عام (الوالد)</option><option value="developer">مبرمج (كاملة)</option></>)}</select></div><div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-medium flex justify-center items-center">إضافة</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium">إلغاء</button></div></form></div></div>
+  );
+}
+
+function AuditLogsList({ logs, userRole }) {
+  if (userRole === 'member') return <div className="p-8 text-center text-red-500">عذراً، ليس لديك صلاحية.</div>;
+
+  const [selectedDay, setSelectedDay] = useState('All');
+
+  const logsWithDay = useMemo(() => {
+    return logs.map(log => {
+      const dayStr = log.dayStr || log.date.split(/,|،/)[0].trim();
+      return { ...log, dayStr };
+    });
+  }, [logs]);
+
+  const availableDays = useMemo(() => {
+    const days = new Set(logsWithDay.map(l => l.dayStr));
+    return [...days]; 
+  }, [logsWithDay]);
+
+  const filteredLogs = useMemo(() => {
+    if (selectedDay === 'All') return logsWithDay;
+    return logsWithDay.filter(l => l.dayStr === selectedDay);
+  }, [logsWithDay, selectedDay]);
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6 w-full relative z-10">
+      
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+        <h2 className="text-xl font-bold text-gray-800 flex items-center"><ClipboardList className="w-6 h-6 ml-2 text-red-600" />سجل التغييرات والمهام</h2>
+        
+        <div className="w-full sm:w-auto relative">
+          <Calendar className="w-4 h-4 absolute right-3 top-3 text-gray-500" />
+          <select 
+            value={selectedDay} 
+            onChange={(e) => setSelectedDay(e.target.value)} 
+            className="w-full sm:w-56 pl-3 pr-9 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm text-gray-700 bg-gray-50 appearance-none font-medium"
+            dir="rtl"
+          >
+            <option value="All">كل الأيام (الجميع)</option>
+            {availableDays.map(day => (
+              <option key={day} value={day}>{day}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      
+      <div className="hidden md:block overflow-x-auto w-full">
+        <table className="w-full text-right min-w-[600px]"><thead className="bg-gray-50 text-gray-600 text-sm border-y"><tr><th className="p-3">التاريخ والوقت</th><th className="p-3">المستخدم</th><th className="p-3">الإجراء</th><th className="p-3">التفاصيل</th></tr></thead><tbody className="divide-y divide-gray-100 text-sm">{filteredLogs.length === 0 ? <tr><td colSpan="4" className="p-8 text-center text-gray-500">لا توجد سجلات لهذا اليوم.</td></tr> : filteredLogs.map(log => <tr key={log.id} className="hover:bg-gray-50"><td className="p-3 text-gray-500 whitespace-nowrap" dir="ltr">{log.date}</td><td className="p-3 font-medium text-blue-700 whitespace-nowrap">{log.userName}</td><td className="p-3"><span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-lg text-[11px] font-bold border whitespace-nowrap">{log.action}</span></td><td className="p-3 text-gray-700 min-w-[200px]">{log.details}</td></tr>)}</tbody></table>
+      </div>
+
+      <div className="md:hidden flex flex-col gap-3">
+        {filteredLogs.length === 0 ? (
+          <div className="p-8 text-center text-gray-500 bg-gray-50 rounded-xl border border-gray-100">لا توجد سجلات لهذا اليوم.</div>
+        ) : (
+          filteredLogs.map(log => (
+            <div key={log.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col gap-2 relative">
+              <div className="flex justify-between items-start mb-1">
+                <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-md text-[10px] font-bold border">{log.action}</span>
+                <span className="text-gray-400 text-[10px]" dir="ltr">{log.date}</span>
+              </div>
+              <div className="text-sm font-bold text-blue-700">{log.userName}</div>
+              <div className="text-xs text-gray-700 leading-relaxed bg-gray-50 p-2 rounded border border-gray-200">{log.details}</div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// 10. إعدادات المطور
+function DeveloperSettings({ locations, setLocations, auditLogs, setAuditLogs, extinguishers, setExtinguishers, db, fbUser, appId, logAction, currentUser }) {
+  const [newLocation, setNewLocation] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState(null); 
+  const [bulkData, setBulkData] = useState({ quantity: 10, type: 'Powder', size: '6Kg', location: locations[0] || '' });
+
+  if (currentUser.role !== 'developer') return <div className="p-8 text-center text-red-500">خاص بالمطورين فقط.</div>;
+
+  const handleAddLocation = () => {
+    if (newLocation.trim() && !locations.includes(newLocation.trim())) {
+      setLocations([...locations, newLocation.trim()]);
+      setNewLocation('');
+    }
+  };
+
+  const handleRemoveLocation = (loc) => {
+    if (locations.length > 1) setLocations(locations.filter(l => l !== loc));
+    else alert("يجب أن يبقى موقع واحد على الأقل.");
+  };
+
+  const executeClearLogs = () => {
+    if (db && fbUser) auditLogs.forEach(log => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(log.id))).catch(()=>{}));
+    else setAuditLogs([]);
+    logAction('تنظيف النظام', 'تم مسح سجل النشاطات بالكامل.');
+  };
+
+  const executeWipeData = () => {
+    if (db && fbUser) extinguishers.forEach(ext => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))).catch(()=>{}));
+    else { window.localStorage.setItem('fireTracker_extinguishers', '[]'); window.location.reload(); }
+    logAction('تهيئة النظام', 'تم مسح قاعدة بيانات الطفايات بالكامل.');
+  };
+
+  const handleBulkAdd = () => {
+    const quantity = Number(bulkData.quantity);
+    if (quantity <= 0 || quantity > 500) return; 
+    
+    const maxExtNumber = extinguishers.reduce((max, ext) => {
+      const numMatch = ext.number.match(/\d+/);
+      const num = numMatch ? parseInt(numMatch[0], 10) : 0;
+      return Math.max(max, num);
+    }, 0);
+
+    const d = new Date();
+    const todayStr = d.toISOString().split('T')[0];
+    const nextDateStr = calculateNextDate(todayStr);
+    const status = calculateStatus(nextDateStr, todayStr);
+
+    const newExts = [];
+    for (let i = 1; i <= quantity; i++) {
+      const newNum = maxExtNumber + i;
+      const formattedNum = `EXT-${String(newNum).padStart(3, '0')}`;
+      const newId = Date.now() + i + Math.floor(Math.random() * 1000); 
+      
+      newExts.push({
+        id: newId,
+        number: formattedNum,
+        size: bulkData.size,
+        type: bulkData.type,
+        location: bulkData.location,
+        subLocation: '',
+        lastDate: todayStr,
+        nextDate: nextDateStr,
+        lastInspection: todayStr,
+        status: status,
+        notes: '',
+        inCabinet: false
+      });
+    }
+
+    if (db && fbUser) {
+       newExts.forEach(ext => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), ext).catch(()=>{}));
+    } else {
+       setExtinguishers(prev => [...prev, ...newExts]);
+    }
+    
+    logAction('إضافة جماعية', `تم إنشاء ${quantity} طفاية جديدة تلقائياً في ${bulkData.location}.`);
+  };
+
+  return (
+    <div className="space-y-6 max-w-3xl mx-auto pb-10">
+      <h2 className="text-2xl font-bold text-gray-800 border-b pb-4 flex items-center"><Settings className="w-6 h-6 ml-2 text-red-600"/> إعدادات النظام الأساسية (للمطور)</h2>
+      
+      {/* 1. الإضافة الجماعية */}
+      <div className="bg-white rounded-xl shadow-sm border border-purple-200 p-5 overflow-hidden relative">
+        <div className="absolute top-0 right-0 w-2 bg-purple-500 h-full"></div>
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><CopyPlus className="w-5 h-5 ml-2 text-purple-600"/> مشغل الأوامر (الإضافة الجماعية)</h3>
+        <p className="text-sm text-gray-600 mb-4">تقوم هذه الأداة بإنشاء عدد كبير من الطفايات دفعة واحدة، وستقوم بتسلسل الأرقام تلقائياً بناءً على آخر رقم موجود في النظام.</p>
+        
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1">العدد المطلوب</label>
+            <input type="number" min="1" max="100" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.quantity} onChange={e => setBulkData({...bulkData, quantity: e.target.value})} />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1">النوع</label>
+            <select className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.type} onChange={e => setBulkData({...bulkData, type: e.target.value})}>
+              <option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1">الحجم</label>
+            <input type="text" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.size} onChange={e => setBulkData({...bulkData, size: e.target.value})} />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1">الموقع الأساسي</label>
+            <select className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.location} onChange={e => setBulkData({...bulkData, location: e.target.value})}>
+              {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+            </select>
+          </div>
+        </div>
+        <button 
+          onClick={() => setConfirmDialog({ title: 'تأكيد الإضافة الجماعية', message: `سيتم الآن إنشاء (${bulkData.quantity}) طفاية جديدة بتسلسلات تلقائية في "${bulkData.location}". هل أنت متأكد؟`, action: handleBulkAdd, isDestructive: false })} 
+          className="w-full md:w-auto bg-purple-600 hover:bg-purple-700 text-white font-bold px-6 py-2.5 rounded-lg transition-colors shadow-md"
+        >
+          تنفيذ الإضافة الجماعية الآن
+        </button>
+      </div>
+
+      {/* 2. إدارة المواقع */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><MapPin className="w-5 h-5 ml-2 text-blue-600"/> إدارة المواقع الأساسية</h3>
+        <div className="flex gap-2 mb-4">
+          <input type="text" placeholder="اسم الموقع الجديد..." className="flex-1 border p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={newLocation} onChange={e => setNewLocation(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddLocation()} />
+          <button onClick={handleAddLocation} className="bg-blue-600 text-white px-5 rounded-lg font-medium hover:bg-blue-700 transition-colors">إضافة</button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {locations.map(loc => (
+            <div key={loc} className="bg-gray-100 border border-gray-200 text-gray-800 px-3 py-1.5 rounded-full flex items-center text-sm font-medium shadow-sm">
+              {loc}
+              <button onClick={() => handleRemoveLocation(loc)} className="ml-1 mr-2 text-gray-400 hover:text-red-500 transition-colors"><X className="w-4 h-4"/></button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 3. أدوات الخطر */}
+      <div className="bg-white rounded-xl shadow-sm border border-red-200 p-5">
+        <h3 className="text-lg font-bold text-red-700 mb-4 flex items-center"><DatabaseBackup className="w-5 h-5 ml-2"/> منطقة الخطر (إدارة البيانات)</h3>
+        
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between bg-red-50 p-4 rounded-lg border border-red-100">
+            <div>
+              <p className="font-bold text-gray-800">مسح سجل النشاطات</p>
+              <p className="text-xs text-gray-600 mt-1">مسح جميع التغييرات السابقة ({auditLogs.length} سجل حالياً).</p>
+            </div>
+            <button onClick={() => setConfirmDialog({ title: 'تفريغ السجل', message: 'هل أنت متأكد من مسح جميع سجلات النشاطات نهائياً؟', action: executeClearLogs, isDestructive: true })} disabled={auditLogs.length === 0} className="w-full sm:w-auto mt-3 sm:mt-0 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">
+              تفريغ السجل
+            </button>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between bg-red-100 p-4 rounded-lg border border-red-300">
+            <div>
+              <p className="font-bold text-red-900">إعادة ضبط المصنع (مسح الطفايات)</p>
+              <p className="text-xs text-red-700 mt-1">يحذف جميع الطفايات المسجلة نهائياً للبدء من جديد.</p>
+            </div>
+            <button onClick={() => setConfirmDialog({ title: 'مسح الطفايات!', message: 'تحذير خطير: هل أنت متأكد من مسح جميع بيانات الطفايات؟ لا يمكن التراجع عن هذه الخطوة!', action: executeWipeData, isDestructive: true })} disabled={extinguishers.length === 0} className="w-full sm:w-auto mt-3 sm:mt-0 bg-red-800 hover:bg-red-900 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">
+              مسح كل البيانات!
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {confirmDialog && (
+        <CustomConfirmModal 
+          title={confirmDialog.title} 
+          message={confirmDialog.message} 
+          isDestructive={confirmDialog.isDestructive} 
+          onConfirm={confirmDialog.action} 
+          onClose={() => setConfirmDialog(null)} 
+        />
+      )}
+
+    </div>
+  );
+}
 
 
