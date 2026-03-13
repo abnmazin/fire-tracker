@@ -22,7 +22,8 @@ import {
   Trash2,
   Phone,
   Menu,
-  X
+  X,
+  CheckSquare
 } from 'lucide-react';
 
 // القائمة المنسدلة للمواقع
@@ -70,13 +71,13 @@ const d5AndHalfMonthsAgo = formatDate(new Date(today.getFullYear(), today.getMon
 const d8MonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 8, today.getDate())); // منتهي الصلاحية
 
 const initialExtinguishers = [
-  { id: 1, number: 'EXT-001', size: '6Kg', type: 'Powder', location: 'مسجد البصرة', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), status: 'صالحة', notes: '', inCabinet: true },
-  { id: 2, number: 'EXT-002', size: '12Kg', type: 'CO2', location: 'موكب كربلا', lastDate: d8MonthsAgo, nextDate: calculateNextDate(d8MonthsAgo), status: 'منتهية', notes: 'تحتاج إعادة تعبئة سريع', inCabinet: false },
-  { id: 3, number: 'EXT-003', size: '6Kg', type: 'Foam', location: 'موكب النجف', lastDate: d5AndHalfMonthsAgo, nextDate: calculateNextDate(d5AndHalfMonthsAgo), status: 'فحص قريب', notes: 'يجب التجهيز للفحص', inCabinet: false },
-  { id: 4, number: 'EXT-004', size: '9L', type: 'Water', location: 'مسجد البصرة', lastDate: dToday, nextDate: calculateNextDate(dToday), status: 'صالحة', notes: 'جديدة تماماً', inCabinet: true },
-  { id: 5, number: 'EXT-005', size: '6Kg', type: 'Powder', location: 'المشاية', lastDate: d8MonthsAgo, nextDate: calculateNextDate(d8MonthsAgo), status: 'منتهية', notes: 'مقبض تالف', inCabinet: false },
-  { id: 6, number: 'EXT-006', size: '4Kg', type: 'CO2', location: 'موكب سامراء', lastDate: d5MonthsAgo, nextDate: calculateNextDate(d5MonthsAgo), status: 'صالحة', notes: '', inCabinet: true },
-  { id: 7, number: 'EXT-007', size: '12Kg', type: 'Powder', location: 'موكب كربلا', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), status: 'صالحة', notes: '', inCabinet: false },
+  { id: 1, number: 'EXT-001', size: '6Kg', type: 'Powder', location: 'مسجد البصرة', subLocation: 'الطابق الأول - قرب الإدارة', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), status: 'صالحة', notes: '', inCabinet: true },
+  { id: 2, number: 'EXT-002', size: '12Kg', type: 'CO2', location: 'موكب كربلا', subLocation: 'المطبخ الرئيسي', lastDate: d8MonthsAgo, nextDate: calculateNextDate(d8MonthsAgo), status: 'منتهية', notes: 'تحتاج إعادة تعبئة سريع', inCabinet: false },
+  { id: 3, number: 'EXT-003', size: '6Kg', type: 'Foam', location: 'موكب النجف', subLocation: '', lastDate: d5AndHalfMonthsAgo, nextDate: calculateNextDate(d5AndHalfMonthsAgo), status: 'فحص قريب', notes: 'يجب التجهيز للفحص', inCabinet: false },
+  { id: 4, number: 'EXT-004', size: '9L', type: 'Water', location: 'مسجد البصرة', subLocation: 'الباب الخارجي', lastDate: dToday, nextDate: calculateNextDate(dToday), status: 'صالحة', notes: 'جديدة تماماً', inCabinet: true },
+  { id: 5, number: 'EXT-005', size: '6Kg', type: 'Powder', location: 'المشاية', subLocation: 'العمود 102', lastDate: d8MonthsAgo, nextDate: calculateNextDate(d8MonthsAgo), status: 'منتهية', notes: 'مقبض تالف', inCabinet: false },
+  { id: 6, number: 'EXT-006', size: '4Kg', type: 'CO2', location: 'موكب سامراء', subLocation: 'غرفة المولدات', lastDate: d5MonthsAgo, nextDate: calculateNextDate(d5MonthsAgo), status: 'صالحة', notes: '', inCabinet: true },
+  { id: 7, number: 'EXT-007', size: '12Kg', type: 'Powder', location: 'موكب كربلا', subLocation: 'قاعة الصلاة', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), status: 'صالحة', notes: '', inCabinet: false },
 ];
 
 export default function App() {
@@ -305,7 +306,9 @@ function Dashboard({ extinguishers, contacts, setContacts, user }) {
           <AlertTriangle className="w-5 h-5 ml-2 text-red-500" />
           تتطلب انتباهاً عاجلاً
         </h3>
-        <div className="overflow-x-auto">
+        
+        {/* العرض للشاشات الكبيرة (جدول) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-right min-w-[300px]">
             <thead>
               <tr className="border-b text-gray-500 text-sm">
@@ -318,7 +321,10 @@ function Dashboard({ extinguishers, contacts, setContacts, user }) {
               {extinguishers.filter(e => e.status !== 'صالحة').map(ext => (
                 <tr key={ext.id} className="border-b hover:bg-gray-50">
                   <td className="p-3 font-medium text-sm">{ext.number}</td>
-                  <td className="p-3 text-gray-600 text-sm">{ext.location}</td>
+                  <td className="p-3 text-gray-600 text-sm">
+                    {ext.location}
+                    {ext.subLocation && <span className="text-xs text-gray-400 mr-2">({ext.subLocation})</span>}
+                  </td>
                   <td className="p-3">
                     <span className={`px-2 py-1 rounded-full text-[10px] md:text-xs font-bold whitespace-nowrap ${ext.status === 'منتهية' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
                       {ext.status}
@@ -335,6 +341,29 @@ function Dashboard({ extinguishers, contacts, setContacts, user }) {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* العرض للموبايل (بطاقات) */}
+        <div className="md:hidden flex flex-col gap-3">
+          {extinguishers.filter(e => e.status !== 'صالحة').map(ext => (
+            <div key={ext.id} className="bg-gray-50 border border-gray-100 rounded-lg p-3 flex justify-between items-center">
+              <div>
+                <div className="font-bold text-gray-800 text-sm">{ext.number}</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {ext.location}
+                  {ext.subLocation && <span className="block text-gray-400 text-[10px]">{ext.subLocation}</span>}
+                </div>
+              </div>
+              <span className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${ext.status === 'منتهية' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                {ext.status}
+              </span>
+            </div>
+          ))}
+          {extinguishers.filter(e => e.status !== 'صالحة').length === 0 && (
+            <div className="p-4 text-center text-green-600 font-medium text-sm bg-green-50 rounded-lg">
+              جميع الطفايات بحالة جيدة حالياً!
+            </div>
+          )}
         </div>
       </div>
 
@@ -452,7 +481,11 @@ function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, use
   const canEdit = user.role === 'developer' || user.role === 'admin';
 
   const filtered = extinguishers.filter(e => {
-    const matchesSearch = e.number.toLowerCase().includes(searchTerm.toLowerCase()) || e.location.includes(searchTerm);
+    const searchLower = searchTerm.toLowerCase();
+    const matchesSearch = e.number.toLowerCase().includes(searchLower) || 
+                          e.location.includes(searchTerm) ||
+                          (e.subLocation && e.subLocation.toLowerCase().includes(searchLower));
+                          
     const matchesType = filterType === 'All' || e.type === filterType;
     const matchesCabinet = filterCabinet === 'All' ? true : filterCabinet === 'Yes' ? e.inCabinet : !e.inCabinet;
     return matchesSearch && matchesType && matchesCabinet;
@@ -534,7 +567,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, use
 
           <div className="relative w-full sm:w-48 lg:w-56">
             <Search className="w-5 h-5 absolute right-3 top-2.5 text-gray-400" />
-            <input type="text" placeholder="بحث بالرقم أو الموقع..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-3 pr-10 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" />
+            <input type="text" placeholder="بحث موقع، موقع فرعي، أو رقم..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-3 pr-10 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" />
           </div>
           
           <div className="flex gap-2 w-full sm:w-auto">
@@ -551,6 +584,25 @@ function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, use
           </div>
         </div>
       </div>
+
+      {/* زر تحديد الكل لشاشات الموبايل */}
+      {canEdit && filtered.length > 0 && (
+        <div className="md:hidden bg-white border border-gray-200 rounded-lg p-3 flex justify-between items-center shadow-sm">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input 
+              type="checkbox" 
+              className="w-5 h-5 text-red-600 rounded focus:ring-red-500"
+              onChange={(e) => {
+                if (e.target.checked) setSelectedIds(filtered.filter(ext => !ext.inCabinet).map(ext => ext.id));
+                else setSelectedIds([]);
+              }}
+              checked={selectedIds.length > 0 && selectedIds.length === filtered.filter(ext => !ext.inCabinet).length}
+            />
+            <span className="text-sm font-bold text-gray-700 select-none">تحديد جميع المعروض</span>
+          </label>
+          {selectedIds.length > 0 && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-md font-bold">{selectedIds.length} محدد</span>}
+        </div>
+      )}
 
       {/* العرض الخاص بالشاشات الكبيرة (جدول) */}
       <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden w-full">
@@ -587,7 +639,10 @@ function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, use
                   </div>
                 </td>
                 <td className="p-3"><span className="bg-gray-200 px-2 py-1 rounded text-gray-700 text-xs">{ext.type}</span> {ext.size}</td>
-                <td className="p-3 text-gray-600">{ext.location}</td>
+                <td className="p-3">
+                  <div className="text-gray-800">{ext.location}</div>
+                  {ext.subLocation && <div className="text-xs text-gray-500">{ext.subLocation}</div>}
+                </td>
                 <td className="p-3 text-gray-500 whitespace-nowrap">{ext.lastDate}</td>
                 <td className="p-3 font-medium whitespace-nowrap">{ext.nextDate}</td>
                 <td className="p-3">
@@ -610,7 +665,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, use
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td colSpan={canEdit ? "8" : "7"} className="p-6 text-center text-gray-500">لا توجد طفايات مطابقة للبحث.</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={canEdit ? "9" : "8"} className="p-6 text-center text-gray-500">لا توجد طفايات مطابقة للبحث.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -646,7 +701,11 @@ function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, use
             
             {/* Body: Info Grid */}
             <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">
-              <div><span className="text-gray-400 block text-[10px] mb-0.5">الموقع</span><span className="font-medium text-gray-700">{ext.location}</span></div>
+              <div>
+                <span className="text-gray-400 block text-[10px] mb-0.5">الموقع</span>
+                <span className="font-medium text-gray-700">{ext.location}</span>
+                {ext.subLocation && <span className="text-gray-500 text-[10px] block mt-0.5 bg-gray-200/50 px-1 rounded w-max">{ext.subLocation}</span>}
+              </div>
               <div><span className="text-gray-400 block text-[10px] mb-0.5">آخر فحص</span><span className="font-medium text-gray-700">{ext.lastDate}</span></div>
               <div className="col-span-2 pt-2 border-t border-gray-200/60"><span className="text-gray-400 block text-[10px] mb-0.5">موعد الفحص القادم</span><span className="font-bold text-gray-800">{ext.nextDate}</span></div>
             </div>
@@ -683,7 +742,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, use
 
 // 4. نافذة إضافة طفاية جديدة
 function AddExtinguisherModal({ onClose, onAdd }) {
-  const [formData, setFormData] = useState({ number: '', size: '6Kg', type: 'Powder', location: LOCATIONS[0], lastDate: new Date().toISOString().split('T')[0], notes: '', inCabinet: false });
+  const [formData, setFormData] = useState({ number: '', size: '6Kg', type: 'Powder', location: LOCATIONS[0], subLocation: '', lastDate: new Date().toISOString().split('T')[0], notes: '', inCabinet: false });
   const handleSubmit = (e) => { e.preventDefault(); onAdd(formData); };
 
   return (
@@ -696,7 +755,8 @@ function AddExtinguisherModal({ onClose, onAdd }) {
             <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option></select></div>
             <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><input required type="text" placeholder="مثال: 6Kg" className="w-full border p-2 rounded" value={formData.size} onChange={e => setFormData({...formData, size: e.target.value})} /></div>
           </div>
-          <div><label className="block text-sm text-gray-600 mb-1">الموقع</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-red-500" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})}>{LOCATIONS.map(loc => <option key={loc} value={loc}>{loc}</option>)}</select></div>
+          <div><label className="block text-sm text-gray-600 mb-1">الموقع الرئيسي</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-red-500" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})}>{LOCATIONS.map(loc => <option key={loc} value={loc}>{loc}</option>)}</select></div>
+          <div><label className="block text-sm text-gray-600 mb-1">الموقع الفرعي (اختياري)</label><input type="text" placeholder="مثال: الطابق الثاني - قرب السلم" className="w-full border p-2 rounded focus:ring-2 focus:ring-red-500" value={formData.subLocation} onChange={e => setFormData({...formData, subLocation: e.target.value})} /></div>
           <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="inCabinet" className="w-4 h-4 text-red-600 rounded focus:ring-red-500 cursor-pointer" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="inCabinet" className="text-xs sm:text-sm font-medium text-gray-700 cursor-pointer select-none leading-tight">مثبتة داخل كابينة (يمنع النقل)</label></div>
           <div><label className="block text-sm text-gray-600 mb-1">تاريخ آخر فحص</label><input required type="date" className="w-full border p-2 rounded" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /><p className="text-[10px] text-gray-400 mt-1">* الفحص القادم تلقائي بعد 6 أشهر.</p></div>
           <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-red-600 text-white py-2.5 rounded-lg font-medium hover:bg-red-700">حفظ</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium hover:bg-gray-300">إلغاء</button></div>
@@ -721,7 +781,8 @@ function EditExtinguisherModal({ ext, onClose, onEdit }) {
             <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option></select></div>
             <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><input required type="text" placeholder="مثال: 6Kg" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.size} onChange={e => setFormData({...formData, size: e.target.value})} /></div>
           </div>
-          <div><label className="block text-sm text-gray-600 mb-1">الموقع</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})}>{LOCATIONS.map(loc => <option key={loc} value={loc}>{loc}</option>)}</select></div>
+          <div><label className="block text-sm text-gray-600 mb-1">الموقع الرئيسي</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})}>{LOCATIONS.map(loc => <option key={loc} value={loc}>{loc}</option>)}</select></div>
+          <div><label className="block text-sm text-gray-600 mb-1">الموقع الفرعي (اختياري)</label><input type="text" placeholder="مثال: الطابق الثاني - قرب السلم" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.subLocation || ''} onChange={e => setFormData({...formData, subLocation: e.target.value})} /></div>
           <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="editInCabinet" className="w-4 h-4 text-green-600 rounded focus:ring-green-500 cursor-pointer" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="editInCabinet" className="text-xs sm:text-sm font-medium text-gray-700 cursor-pointer select-none leading-tight">مثبتة داخل كابينة (تمنع الترحيل)</label></div>
           <div><label className="block text-sm text-gray-600 mb-1">تاريخ آخر فحص</label><input required type="date" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
           <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700">حفظ التعديلات</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium hover:bg-gray-300">إلغاء</button></div>
@@ -776,7 +837,9 @@ function UsersList({ users, setUsers, currentUser, setAuditLogs }) {
         <h2 className="text-xl font-bold text-gray-800">فريق العمل</h2>
         <button onClick={() => setShowAddModal(true)} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center transition-colors text-sm font-medium"><UserPlus className="w-4 h-4 ml-2" /> إضافة مستخدم</button>
       </div>
-      <div className="overflow-x-auto w-full">
+
+      {/* العرض للشاشات الكبيرة (جدول) */}
+      <div className="hidden md:block overflow-x-auto w-full">
         <table className="w-full text-right min-w-[500px]">
           <thead className="bg-gray-50 text-gray-600 text-sm"><tr><th className="p-3">الاسم</th><th className="p-3">الحساب</th><th className="p-3">المرور</th><th className="p-3">الصلاحية</th><th className="p-3 text-center">إجراء</th></tr></thead>
           <tbody className="divide-y divide-gray-100 text-sm">
@@ -790,6 +853,26 @@ function UsersList({ users, setUsers, currentUser, setAuditLogs }) {
           </tbody>
         </table>
       </div>
+
+      {/* العرض الخاص بالموبايل (بطاقات) */}
+      <div className="md:hidden flex flex-col gap-3">
+        {users.map(u => (
+          <div key={u.id} className="bg-gray-50 border border-gray-100 rounded-lg p-4 flex flex-col gap-3 relative">
+            <div className="flex justify-between items-start">
+              <span className="font-bold text-gray-800">{u.name}</span>
+              <span className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${u.role === 'developer' ? 'bg-purple-100 text-purple-700' : u.role === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-white border text-gray-700'}`}>{u.role === 'developer' ? 'مبرمج' : u.role === 'admin' ? 'مسؤول' : 'مفتش'}</span>
+            </div>
+            <div className="text-sm text-gray-600 bg-white p-2 rounded border">الحساب: <span dir="ltr" className="font-medium text-gray-800">{u.username}</span></div>
+            <div className="text-sm text-gray-600 bg-white p-2 rounded border">كلمة المرور: <span dir="ltr" className="text-gray-400">{u.password}</span></div>
+            {u.id !== currentUser.id ? (
+              <button onClick={() => handleDeleteUser(u.id, u.name)} className="w-full mt-1 bg-red-50 text-red-600 py-2 rounded-lg text-sm font-medium flex justify-center items-center"><Trash2 className="w-4 h-4 ml-1" /> حذف المستخدم</button>
+            ) : (
+              <div className="w-full mt-1 bg-gray-200/50 text-gray-500 py-2 rounded-lg text-sm font-medium flex justify-center items-center">هذا الحساب الحالي</div>
+            )}
+          </div>
+        ))}
+      </div>
+
       {showAddModal && <AddUserModal onClose={() => setShowAddModal(false)} onAdd={handleAddUser} currentUser={currentUser} />}
     </div>
   );
@@ -845,5 +928,4 @@ function AuditLogsList({ logs, userRole }) {
       </div>
     </div>
   );
-  
 }
