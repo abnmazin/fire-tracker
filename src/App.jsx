@@ -1,39 +1,64 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  ShieldAlert, 
-  ShieldCheck, 
-  AlertTriangle, 
-  LogOut, 
-  Plus, 
-  FileText, 
-  Settings, 
-  LayoutDashboard, 
-  FireExtinguisher, 
-  Search, 
-  Users,
-  CheckCircle,
-  XCircle,
-  ClipboardList,
-  ArrowRightLeft,
-  Archive,
-  Edit,
-  Filter,
-  UserPlus,
-  Trash2,
-  Phone,
-  Menu,
-  X,
-  CheckSquare
+  ShieldAlert, ShieldCheck, AlertTriangle, LogOut, Plus, FileText, 
+  Settings, LayoutDashboard, FireExtinguisher, Search, Users,
+  CheckCircle, XCircle, ClipboardList, ArrowRightLeft, Archive, Edit, Filter,
+  UserPlus, Trash2, Phone, Menu, X, CheckSquare
 } from 'lucide-react';
 
-// دالة مساعدة لحفظ واسترجاع البيانات من LocalStorage
+// استيراد أدوات فايربيس (Firebase)
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, enableIndexedDbPersistence } from 'firebase/firestore';
+
+// ==========================================
+// 🔥 إعدادات قاعدة بيانات فايربيس (Firebase) 🔥
+// ==========================================
+let app, auth, db, appId;
+
+try {
+  // التحقق مما إذا كان الكود يعمل في بيئة المحاكي (Canvas)
+  if (typeof __firebase_config !== 'undefined') {
+    app = initializeApp(JSON.parse(__firebase_config));
+    appId = typeof __app_id !== 'undefined' ? __app_id : 'fire-tracker-ed183';
+  } else {
+    // ⬇️ ضع إعدادات مشروعك الحقيقي في فايربيس هنا ⬇️
+    const localFirebaseConfig = {
+      apiKey: "BOV1AYm7DuEFVynl-wOKMBDbA2woCgwszK8NaJ7oB2SDpJrVy75drvaxOvzo083OXGdd722Yfb-WzkeGc7boQ4Y",
+      authDomain: "fire-tracker-ed183.firebaseapp.com",
+      projectId: "fire-tracker-ed183",
+      storageBucket: "fire-tracker-ed183.appspot.com",
+      messagingSenderId: "419744627127",
+      appId: "fire-tracker-ed183"
+    };
+    
+    // سيعمل فايربيس فقط إذا قمت بتغيير المفتاح أعلاه
+    if (localFirebaseConfig.apiKey !== "BOV1AYm7DuEFVynl-wOKMBDbA2woCgwszK8NaJ7oB2SDpJrVy75drvaxOvzo083OXGdd722Yfb-WzkeGc7boQ4Y") {
+      app = initializeApp(localFirebaseConfig);
+      appId = 'fire-tracker-ed183';
+    }
+  }
+
+  if (app) {
+    auth = getAuth(app);
+    db = getFirestore(app);
+    // تفعيل العمل بدون إنترنت (Offline Persistence)
+    try {
+      enableIndexedDbPersistence(db).catch(err => console.warn("ملاحظة التخزين المحلي:", err.message));
+    } catch(e) {}
+  }
+} catch (e) {
+  console.error("خطأ في تهيئة فايربيس:", e);
+}
+// ==========================================
+
+// دالة مساعدة لحفظ البيانات احتياطياً في LocalStorage
 function useLocalStorage(key, initialValue) {
   const [value, setValue] = useState(() => {
     try {
       const item = window.localStorage.getItem(key);
       return item ? JSON.parse(item) : initialValue;
     } catch (error) {
-      console.warn("Error reading localStorage", error);
       return initialValue;
     }
   });
@@ -41,18 +66,15 @@ function useLocalStorage(key, initialValue) {
   useEffect(() => {
     try {
       window.localStorage.setItem(key, JSON.stringify(value));
-    } catch (error) {
-      console.warn("Error setting localStorage", error);
-    }
+    } catch (error) {}
   }, [key, value]);
 
   return [value, setValue];
 }
 
-// القائمة المنسدلة للمواقع
-const LOCATIONS = ['مسجد البصرة', 'موكب كربلا', 'موكب النجف', 'موكب سامراء', 'المشاية'];
+const LOCATIONS = ['مسجد البصرة', 'موكب كربلاء', 'موكب النجف', 'موكب سامراء', 'المشاية'];
 
-// --- البيانات الأولية (Mock Data) كقيمة افتراضية للمرة الأولى فقط ---
+// --- البيانات الافتراضية ---
 const initialUsers = [
   { id: 1, name: 'المبرمج الأعلى', username: 'dev', password: '123', role: 'developer' },
   { id: 2, name: 'مدير النظام', username: 'admin', password: '123', role: 'admin' },
@@ -64,7 +86,6 @@ const initialContacts = [
   { id: 2, name: 'الصيانة والطوارئ', phone: '07700000000' }
 ];
 
-// دوال مساعدة لحساب التواريخ
 const calculateNextDate = (lastDateStr) => {
   if (!lastDateStr) return '';
   const d = new Date(lastDateStr);
@@ -77,16 +98,13 @@ const calculateStatus = (nextDateStr) => {
   const next = new Date(nextDateStr);
   const now = new Date();
   const diffDays = Math.ceil((next - now) / (1000 * 60 * 60 * 24));
-
   if (diffDays < 0) return 'منتهية';
   if (diffDays <= 14) return 'فحص قريب'; 
   return 'صالحة';
 };
 
-// إنشاء تواريخ وهمية
 const today = new Date();
 const formatDate = (d) => d.toISOString().split('T')[0];
-
 const dToday = formatDate(today);
 const d1MonthAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 1, today.getDate()));
 const d5MonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 5, today.getDate()));
@@ -97,31 +115,104 @@ const initialExtinguishers = [
   { id: 1, number: 'EXT-001', size: '6Kg', type: 'Powder', location: 'مسجد البصرة', subLocation: 'الطابق الأول - قرب الإدارة', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), status: 'صالحة', notes: '', inCabinet: true },
   { id: 2, number: 'EXT-002', size: '12Kg', type: 'CO2', location: 'موكب كربلا', subLocation: 'المطبخ الرئيسي', lastDate: d8MonthsAgo, nextDate: calculateNextDate(d8MonthsAgo), status: 'منتهية', notes: 'تحتاج إعادة تعبئة سريع', inCabinet: false },
   { id: 3, number: 'EXT-003', size: '6Kg', type: 'Foam', location: 'موكب النجف', subLocation: '', lastDate: d5AndHalfMonthsAgo, nextDate: calculateNextDate(d5AndHalfMonthsAgo), status: 'فحص قريب', notes: 'يجب التجهيز للفحص', inCabinet: false },
-  { id: 4, number: 'EXT-004', size: '9L', type: 'Water', location: 'مسجد البصرة', subLocation: 'الباب الخارجي', lastDate: dToday, nextDate: calculateNextDate(dToday), status: 'صالحة', notes: 'جديدة تماماً', inCabinet: true },
-  { id: 5, number: 'EXT-005', size: '6Kg', type: 'Powder', location: 'المشاية', subLocation: 'العمود 102', lastDate: d8MonthsAgo, nextDate: calculateNextDate(d8MonthsAgo), status: 'منتهية', notes: 'مقبض تالف', inCabinet: false },
-  { id: 6, number: 'EXT-006', size: '4Kg', type: 'CO2', location: 'موكب سامراء', subLocation: 'غرفة المولدات', lastDate: d5MonthsAgo, nextDate: calculateNextDate(d5MonthsAgo), status: 'صالحة', notes: '', inCabinet: true },
-  { id: 7, number: 'EXT-007', size: '12Kg', type: 'Powder', location: 'موكب كربلا', subLocation: 'قاعة الصلاة', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), status: 'صالحة', notes: '', inCabinet: false },
 ];
 
 export default function App() {
-  // استخدام useLocalStorage بدلاً من useState لحفظ البيانات بشكل دائم
   const [currentUser, setCurrentUser] = useLocalStorage('fireTracker_user', null);
   const [currentView, setCurrentView] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
+  // حالة حساب فايربيس (للمزامنة في الخلفية)
+  const [fbUser, setFbUser] = useState(null);
+
+  // البيانات
   const [extinguishers, setExtinguishers] = useLocalStorage('fireTracker_extinguishers', initialExtinguishers);
-  const [logs, setLogs] = useLocalStorage('fireTracker_logs', []);
   const [users, setUsers] = useLocalStorage('fireTracker_users', initialUsers);
   const [auditLogs, setAuditLogs] = useLocalStorage('fireTracker_auditLogs', []);
   const [contacts, setContacts] = useLocalStorage('fireTracker_contacts', initialContacts);
 
-  // تحديث حالات الطفايات دائماً عند التحميل للتأكد من حساب التواريخ بشكل صحيح لليوم الحالي
+  // 1. تسجيل الدخول الصامت في فايربيس
   useEffect(() => {
-    setExtinguishers(prev => prev.map(ext => ({
-      ...ext,
-      status: calculateStatus(ext.nextDate)
-    })));
+    if (!auth) return;
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (e) { console.error("Firebase Auth Error:", e); }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setFbUser);
+    return () => unsubscribe();
   }, []);
+
+  // 2. مزامنة البيانات الحية مع فايربيس (Realtime Sync)
+  useEffect(() => {
+    if (!fbUser || !db) return;
+
+    // استماع للطفايات
+    const extRef = collection(db, 'artifacts', appId, 'public', 'data', 'extinguishers');
+    const unsubExt = onSnapshot(extRef, (snap) => {
+      if (snap.empty) {
+        initialExtinguishers.forEach(ext => setDoc(doc(extRef, String(ext.id)), ext));
+      } else {
+        // حساب الحالة ديناميكياً لتكون دقيقة دائماً
+        const loadedData = snap.docs.map(d => {
+          const data = d.data();
+          return { ...data, status: calculateStatus(data.nextDate) };
+        });
+        setExtinguishers(loadedData);
+      }
+    }, console.error);
+
+    // استماع للمستخدمين
+    const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+    const unsubUsers = onSnapshot(usersRef, (snap) => {
+      if (snap.empty) {
+        initialUsers.forEach(u => setDoc(doc(usersRef, String(u.id)), u));
+      } else {
+        setUsers(snap.docs.map(d => d.data()));
+      }
+    }, console.error);
+
+    // استماع لسجل النشاطات
+    const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'auditLogs');
+    const unsubLogs = onSnapshot(logsRef, (snap) => {
+      setAuditLogs(snap.docs.map(d => d.data()).sort((a,b) => b.id - a.id));
+    }, console.error);
+
+    // استماع لأرقام الطوارئ
+    const contactsDoc = doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'contacts');
+    const unsubContacts = onSnapshot(contactsDoc, (snap) => {
+      if (snap.exists()) {
+        setContacts(snap.data().list || []);
+      } else {
+        setDoc(contactsDoc, { list: initialContacts });
+      }
+    }, console.error);
+
+    return () => { unsubExt(); unsubUsers(); unsubLogs(); unsubContacts(); };
+  }, [fbUser, setExtinguishers, setUsers, setAuditLogs, setContacts]);
+
+  // دالة مساعدة لتسجيل النشاطات ورفعها للسيرفر
+  const logAction = async (action, details) => {
+    const newLog = { id: Date.now(), date: new Date().toLocaleString('ar-EG'), userName: currentUser?.name || 'مجهول', action, details };
+    if (db && fbUser) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(newLog.id)), newLog);
+    } else {
+      setAuditLogs(prev => [newLog, ...prev]);
+    }
+  };
+
+  const handleSaveContacts = async (newContacts) => {
+    if (db && fbUser) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'contacts'), { list: newContacts });
+    } else {
+      setContacts(newContacts);
+    }
+  };
 
   const navigateTo = (view) => {
     setCurrentView(view);
@@ -193,15 +284,14 @@ export default function App() {
 
       {/* المحتوى الرئيسي */}
       <main className="flex-1 p-4 md:p-6 overflow-y-auto w-full max-w-full relative z-10">
-        {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={setContacts} user={currentUser} />}
+        {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={handleSaveContacts} user={currentUser} />}
         {currentView === 'list' && (
           <ExtinguishersList 
             extinguishers={extinguishers} 
             setExtinguishers={setExtinguishers}
-            logs={logs}
-            setLogs={setLogs}
             user={currentUser} 
-            setAuditLogs={setAuditLogs}
+            logAction={logAction}
+            db={db} fbUser={fbUser} appId={appId}
           />
         )}
         {currentView === 'users' && (
@@ -209,7 +299,8 @@ export default function App() {
             users={users} 
             setUsers={setUsers}
             currentUser={currentUser} 
-            setAuditLogs={setAuditLogs}
+            logAction={logAction}
+            db={db} fbUser={fbUser} appId={appId}
           />
         )}
         {currentView === 'audit' && <AuditLogsList logs={auditLogs} userRole={currentUser.role} />}
@@ -434,7 +525,7 @@ function EditContactsModal({ contacts, onClose, onSave }) {
   const [editedContacts, setEditedContacts] = useState([...contacts]);
 
   const handleAdd = () => {
-    const newId = editedContacts.length ? Math.max(...editedContacts.map(c => c.id)) + 1 : 1;
+    const newId = editedContacts.length ? Math.max(...editedContacts.map(c => Number(c.id))) + 1 : 1;
     setEditedContacts([...editedContacts, { id: newId, name: '', phone: '' }]);
   };
 
@@ -493,7 +584,7 @@ function StatCard({ title, count, icon: Icon, color }) {
 }
 
 // 3. إدارة الطفايات وسجلها
-function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, user, setAuditLogs }) {
+function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, db, fbUser, appId }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('All');
   const [filterCabinet, setFilterCabinet] = useState('All');
@@ -516,41 +607,63 @@ function ExtinguishersList({ extinguishers, setExtinguishers, logs, setLogs, use
     return matchesSearch && matchesType && matchesCabinet;
   });
 
-  const handleAddExtinguisher = (newExt) => {
-    const newId = extinguishers.length ? Math.max(...extinguishers.map(e=>e.id)) + 1 : 1;
+  const handleAddExtinguisher = async (newExt) => {
+    const newId = extinguishers.length ? Math.max(...extinguishers.map(e=>Number(e.id))) + 1 : 1;
     const extWithDates = { ...newExt, id: newId, nextDate: calculateNextDate(newExt.lastDate), status: calculateStatus(calculateNextDate(newExt.lastDate)) };
-    setExtinguishers([...extinguishers, extWithDates]);
+    
+    if (db && fbUser) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(newId)), extWithDates);
+    } else {
+      setExtinguishers(prev => [...prev, extWithDates]);
+    }
+    
     setShowAddModal(false);
-    setAuditLogs(prev => [{ id: Date.now(), date: new Date().toLocaleString('ar-EG'), userName: user.name, action: 'إضافة طفاية', details: `تمت إضافة طفاية برقم ${newExt.number} في "${newExt.location}"` }, ...prev]);
+    logAction('إضافة طفاية', `تمت إضافة طفاية برقم ${newExt.number} في "${newExt.location}"`);
   };
 
-  const handleInspect = (extId, condition, remarks, date) => {
-    const newLog = { id: Date.now(), extId, inspectorId: user.id, inspectorName: user.name, date, condition, remarks };
-    setLogs([newLog, ...logs]);
-    setExtinguishers(prev => prev.map(ext => {
-      if (ext.id === extId) {
-        const nextD = condition === 'سليمة' ? calculateNextDate(date) : ext.nextDate; 
-        return { ...ext, lastDate: date, nextDate: nextD, status: condition === 'سليمة' ? calculateStatus(nextD) : 'تحتاج صيانة', notes: remarks || ext.notes };
-      }
-      return ext;
-    }));
+  const handleInspect = async (extId, condition, remarks, date) => {
     const ext = extinguishers.find(e => e.id === extId);
-    setAuditLogs(prev => [{ id: Date.now(), date: new Date().toLocaleString('ar-EG'), userName: user.name, action: 'فحص ميداني', details: `تم فحص الطفاية ${ext?.number} بنتيجة: ${condition}` }, ...prev]);
+    if(!ext) return;
+    const nextD = condition === 'سليمة' ? calculateNextDate(date) : ext.nextDate; 
+    const updatedExt = { ...ext, lastDate: date, nextDate: nextD, status: condition === 'سليمة' ? calculateStatus(nextD) : 'تحتاج صيانة', notes: remarks || ext.notes };
+
+    if (db && fbUser) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(extId)), updatedExt);
+    } else {
+      setExtinguishers(prev => prev.map(e => e.id === extId ? updatedExt : e));
+    }
+    
+    logAction('فحص ميداني', `تم فحص الطفاية ${ext.number} بنتيجة: ${condition}`);
     setInspectModalData(null);
   };
 
-  const handleEdit = (updatedExt) => {
+  const handleEdit = async (updatedExt) => {
     const extWithDates = { ...updatedExt, nextDate: calculateNextDate(updatedExt.lastDate), status: calculateStatus(calculateNextDate(updatedExt.lastDate)) };
-    setExtinguishers(prev => prev.map(e => e.id === updatedExt.id ? extWithDates : e));
-    setAuditLogs(prev => [{ id: Date.now(), date: new Date().toLocaleString('ar-EG'), userName: user.name, action: 'تعديل طفاية', details: `تم تعديل بيانات الطفاية رقم ${updatedExt.number}` }, ...prev]);
+    
+    if (db && fbUser) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(updatedExt.id)), extWithDates);
+    } else {
+      setExtinguishers(prev => prev.map(e => e.id === updatedExt.id ? extWithDates : e));
+    }
+    
+    logAction('تعديل طفاية', `تم تعديل بيانات الطفاية رقم ${updatedExt.number}`);
     setEditModalData(null);
   };
 
-  const handleTransfer = (extIds, newLocation) => {
+  const handleTransfer = async (extIds, newLocation) => {
     const extsToTransfer = extinguishers.filter(e => extIds.includes(e.id));
     const extNumbers = extsToTransfer.map(e => e.number).join('، ');
-    setExtinguishers(prev => prev.map(e => extIds.includes(e.id) ? { ...e, location: newLocation } : e));
-    setAuditLogs(prev => [{ id: Date.now(), date: new Date().toLocaleString('ar-EG'), userName: user.name, action: extIds.length > 1 ? 'ترحيل جماعي' : 'ترحيل طفاية', details: `تم نقل ${extIds.length > 1 ? 'الطفايات' : 'الطفاية'} (${extNumbers}) إلى "${newLocation}"` }, ...prev]);
+    
+    if (db && fbUser) {
+      const promises = extsToTransfer.map(ext => 
+        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, location: newLocation })
+      );
+      await Promise.all(promises);
+    } else {
+      setExtinguishers(prev => prev.map(e => extIds.includes(e.id) ? { ...e, location: newLocation } : e));
+    }
+    
+    logAction(extIds.length > 1 ? 'ترحيل جماعي' : 'ترحيل طفاية', `تم نقل ${extIds.length > 1 ? 'الطفايات' : 'الطفاية'} (${extNumbers}) إلى "${newLocation}"`);
     setTransferModalData(null);
     setSelectedIds([]); 
   };
@@ -840,20 +953,34 @@ function InspectModal({ ext, onClose, onSubmit }) {
 }
 
 // 6. إدارة المستخدمين
-function UsersList({ users, setUsers, currentUser, setAuditLogs }) {
+function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId }) {
   const [showAddModal, setShowAddModal] = useState(false);
   if (currentUser.role === 'member') return <div className="p-8 text-center text-red-500">عذراً، ليس لديك صلاحية للوصول لهذه الصفحة.</div>;
 
-  const handleAddUser = (newUser) => {
-    const newId = users.length ? Math.max(...users.map(u => u.id)) + 1 : 1;
-    setUsers([...users, { ...newUser, id: newId }]); setShowAddModal(false);
-    setAuditLogs(prev => [{ id: Date.now(), date: new Date().toLocaleString('ar-EG'), userName: currentUser.name, action: 'إضافة مستخدم', details: `إضافة حساب "${newUser.name}" بصلاحية "${newUser.role}"` }, ...prev]);
+  const handleAddUser = async (newUser) => {
+    const newId = users.length ? Math.max(...users.map(u => Number(u.id))) + 1 : 1;
+    const userObj = { ...newUser, id: newId };
+    
+    if (db && fbUser) {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(newId)), userObj);
+    } else {
+      setUsers([...users, userObj]);
+    }
+    
+    setShowAddModal(false);
+    logAction('إضافة مستخدم', `إضافة حساب "${newUser.name}" بصلاحية "${newUser.role}"`);
   };
 
-  const handleDeleteUser = (id, name) => {
+  const handleDeleteUser = async (id, name) => {
     if (id === currentUser.id) return; 
-    setUsers(users.filter(u => u.id !== id));
-    setAuditLogs(prev => [{ id: Date.now(), date: new Date().toLocaleString('ar-EG'), userName: currentUser.name, action: 'حذف مستخدم', details: `حذف حساب "${name}"` }, ...prev]);
+    
+    if (db && fbUser) {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(id)));
+    } else {
+      setUsers(users.filter(u => u.id !== id));
+    }
+    
+    logAction('حذف مستخدم', `حذف حساب "${name}"`);
   };
 
   return (
