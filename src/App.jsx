@@ -3,7 +3,7 @@ import {
   ShieldAlert, ShieldCheck, AlertTriangle, LogOut, Plus, FileText, 
   Settings, LayoutDashboard, FireExtinguisher, Search, Users,
   CheckCircle, XCircle, ClipboardList, ArrowRightLeft, Archive, Edit, Filter,
-  UserPlus, Trash2, Phone, Menu, X, MessageCircle, MapPin
+  UserPlus, Trash2, Phone, Menu, X, MessageCircle, MapPin, TrendingUp
 } from 'lucide-react';
 // استيراد أدوات فايربيس (Firebase)
 import { initializeApp } from 'firebase/app';
@@ -273,6 +273,7 @@ export default function App() {
           <nav className="flex-1 p-4 space-y-2">
             <SidebarBtn icon={LayoutDashboard} label="لوحة التحكم" active={currentView === 'dashboard'} onClick={() => navigateTo('dashboard')} />
             <SidebarBtn icon={FireExtinguisher} label="سجل الطفايات" active={currentView === 'list'} onClick={() => navigateTo('list')} />
+            <SidebarBtn icon={TrendingUp} label="التقييم والتقارير" active={currentView === 'report'} onClick={() => navigateTo('report')} />
             {(currentUser.role === 'developer' || currentUser.role === 'admin') && (
               <>
                 <SidebarBtn icon={Users} label="المستخدمين" active={currentView === 'users'} onClick={() => navigateTo('users')} />
@@ -300,6 +301,7 @@ export default function App() {
       {/* المحتوى الرئيسي */}
       <main className="flex-1 p-4 md:p-6 overflow-y-auto w-full max-w-full relative z-10 bg-gray-50">
         {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={handleSaveContacts} locations={locations} setLocations={handleSaveLocations} user={currentUser} />}
+        {currentView === 'report' && <EvaluationReport extinguishers={extinguishers} locations={locations} />}
         {currentView === 'list' && (
           <ExtinguishersList 
             extinguishers={extinguishers} 
@@ -1058,3 +1060,208 @@ function AuditLogsList({ logs, userRole }) {
 }
 
 
+
+// ==========================================
+// تقرير التقييم الشامل
+// ==========================================
+function EvaluationReport({ extinguishers, locations }) {
+  const stats = useMemo(() => {
+    const total = extinguishers.length;
+    const valid = extinguishers.filter(e => e.status === 'صالحة').length;
+    const warning = extinguishers.filter(e => e.status === 'فحص قريب').length;
+    const expired = extinguishers.filter(e => e.status === 'منتهية').length;
+    const inCabinet = extinguishers.filter(e => e.inCabinet).length;
+    const complianceRate = total > 0 ? Math.round((valid / total) * 100) : 0;
+    return { total, valid, warning, expired, inCabinet, complianceRate };
+  }, [extinguishers]);
+
+  const locationStats = useMemo(() => {
+    return locations
+      .map(loc => {
+        const exts = extinguishers.filter(e => e.location === loc);
+        if (exts.length === 0) return null;
+        const valid = exts.filter(e => e.status === 'صالحة').length;
+        const warning = exts.filter(e => e.status === 'فحص قريب').length;
+        const expired = exts.filter(e => e.status === 'منتهية').length;
+        const rate = Math.round((valid / exts.length) * 100);
+        return { name: loc, total: exts.length, valid, warning, expired, rate };
+      })
+      .filter(Boolean);
+  }, [extinguishers, locations]);
+
+  const typeStats = useMemo(() => {
+    const typeCounts = {};
+    extinguishers.forEach(e => { typeCounts[e.type] = (typeCounts[e.type] || 0) + 1; });
+    return Object.entries(typeCounts)
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [extinguishers]);
+
+  const riskLevel =
+    stats.complianceRate >= 90 ? 'منخفض' :
+    stats.complianceRate >= 70 ? 'متوسط' : 'مرتفع';
+
+  const riskColor =
+    stats.complianceRate >= 90 ? 'text-green-700 bg-green-100 border-green-300' :
+    stats.complianceRate >= 70 ? 'text-yellow-700 bg-yellow-100 border-yellow-300' :
+                                 'text-red-700 bg-red-100 border-red-300';
+
+  const scoreRingColor =
+    stats.complianceRate >= 90 ? '#16a34a' :
+    stats.complianceRate >= 70 ? '#ca8a04' : '#dc2626';
+
+  const recommendations = useMemo(() => {
+    const list = [];
+    if (stats.expired > 0)
+      list.push({ icon: '🔴', text: `يوجد ${stats.expired} طفاية/طفايات منتهية الصلاحية — يجب إجراء الصيانة فوراً.` });
+    if (stats.warning > 0)
+      list.push({ icon: '🟡', text: `يوجد ${stats.warning} طفاية/طفايات موعد فحصها قريب — يُنصح بالجدولة خلال أسبوعين.` });
+    const noSubLoc = extinguishers.filter(e => !e.subLocation || e.subLocation.trim() === '');
+    if (noSubLoc.length > 0)
+      list.push({ icon: '🟠', text: `${noSubLoc.length} طفاية/طفايات بدون موقع فرعي محدد — يُنصح بإضافة تفاصيل الموقع الدقيق.` });
+    const noNotes = extinguishers.filter(e => e.status !== 'صالحة' && (!e.notes || e.notes.trim() === ''));
+    if (noNotes.length > 0)
+      list.push({ icon: '🔵', text: `${noNotes.length} طفاية/طفايات غير صالحة بدون ملاحظات — أضف ملاحظات لتوضيح سبب الحالة.` });
+    const notInCabinet = extinguishers.filter(e => !e.inCabinet);
+    if (notInCabinet.length > 0)
+      list.push({ icon: '⚪', text: `${notInCabinet.length} طفاية/طفايات غير موجودة داخل خزانات — تحقق من وضع التثبيت والحماية.` });
+    if (list.length === 0)
+      list.push({ icon: '✅', text: 'جميع الطفايات بحالة ممتازة ولا توجد توصيات عاجلة حالياً.' });
+    return list;
+  }, [extinguishers, stats]);
+
+  const circumference = 2 * Math.PI * 40;
+  const dashOffset = circumference - (stats.complianceRate / 100) * circumference;
+
+  return (
+    <div className="space-y-6 pb-10">
+      <h2 className="text-xl md:text-2xl font-bold text-gray-800 flex items-center">
+        <TrendingUp className="w-6 h-6 ml-2 text-red-600" />
+        التقييم والتقارير
+      </h2>
+
+      {/* نسبة الامتثال والمستوى */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col items-center justify-center text-center">
+          <p className="text-gray-500 text-sm mb-4">نسبة الامتثال العام</p>
+          <svg viewBox="0 0 100 100" className="w-36 h-36 -rotate-90">
+            <circle cx="50" cy="50" r="40" fill="none" stroke="#e5e7eb" strokeWidth="12" />
+            <circle
+              cx="50" cy="50" r="40" fill="none"
+              stroke={scoreRingColor} strokeWidth="12"
+              strokeDasharray={circumference}
+              strokeDashoffset={dashOffset}
+              strokeLinecap="round"
+              style={{ transition: 'stroke-dashoffset 0.6s ease' }}
+            />
+          </svg>
+          <p className="text-4xl font-extrabold mt-2" style={{ color: scoreRingColor }}>{stats.complianceRate}%</p>
+          <p className="text-sm text-gray-500 mt-1">{stats.valid} من {stats.total} طفاية صالحة</p>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col justify-center gap-4">
+          <div className={`flex items-center justify-between rounded-xl border p-4 ${riskColor}`}>
+            <span className="font-bold text-lg">مستوى الخطر</span>
+            <span className="text-2xl font-extrabold">{riskLevel}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-center text-sm">
+            <div className="bg-green-50 border border-green-200 rounded-xl p-3">
+              <p className="text-2xl font-extrabold text-green-700">{stats.valid}</p>
+              <p className="text-green-600 text-xs mt-1">صالحة</p>
+            </div>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3">
+              <p className="text-2xl font-extrabold text-yellow-700">{stats.warning}</p>
+              <p className="text-yellow-600 text-xs mt-1">فحص قريب</p>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+              <p className="text-2xl font-extrabold text-red-700">{stats.expired}</p>
+              <p className="text-red-600 text-xs mt-1">منتهية</p>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+              <p className="text-2xl font-extrabold text-blue-700">{stats.inCabinet}</p>
+              <p className="text-blue-600 text-xs mt-1">داخل خزانة</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* تحليل المواقع */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6">
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+          <MapPin className="w-5 h-5 ml-2 text-purple-500" />
+          تحليل الامتثال حسب الموقع
+        </h3>
+        {locationStats.length === 0 ? (
+          <p className="text-gray-500 text-sm text-center py-6">لا توجد بيانات مواقع.</p>
+        ) : (
+          <div className="space-y-3">
+            {locationStats.map(locStat => (
+              <div key={locStat.name} className="border border-gray-100 rounded-xl p-4 bg-gray-50">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-bold text-gray-800 text-sm">{locStat.name}</span>
+                  <span className="text-sm font-extrabold" style={{ color: locStat.rate >= 90 ? '#16a34a' : locStat.rate >= 70 ? '#ca8a04' : '#dc2626' }}>
+                    {locStat.rate}%
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2 overflow-hidden">
+                  <div
+                    className="h-2.5 rounded-full transition-all duration-500"
+                    style={{
+                      width: `${locStat.rate}%`,
+                      backgroundColor: locStat.rate >= 90 ? '#16a34a' : locStat.rate >= 70 ? '#ca8a04' : '#dc2626'
+                    }}
+                  />
+                </div>
+                <div className="flex gap-3 text-xs text-gray-500 flex-wrap">
+                  <span>الإجمالي: <strong className="text-gray-700">{locStat.total}</strong></span>
+                  <span className="text-green-600">صالحة: <strong>{locStat.valid}</strong></span>
+                  {locStat.warning > 0 && <span className="text-yellow-600">فحص قريب: <strong>{locStat.warning}</strong></span>}
+                  {locStat.expired > 0 && <span className="text-red-600">منتهية: <strong>{locStat.expired}</strong></span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* توزيع أنواع الطفايات */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6">
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+          <FireExtinguisher className="w-5 h-5 ml-2 text-red-500" />
+          توزيع أنواع الطفايات
+        </h3>
+        {typeStats.length === 0 ? (
+          <p className="text-gray-500 text-sm text-center py-6">لا توجد بيانات.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {typeStats.map(typeStat => (
+              <div key={typeStat.type} className="bg-gray-50 border border-gray-100 rounded-xl p-4 text-center">
+                <p className="text-2xl font-extrabold text-gray-800">{typeStat.count}</p>
+                <p className="text-xs text-gray-500 mt-1 font-medium" dir="ltr">{typeStat.type}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  {stats.total > 0 ? Math.round((typeStat.count / stats.total) * 100) : 0}% من الإجمالي
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* التوصيات */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6">
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
+          <ClipboardList className="w-5 h-5 ml-2 text-blue-500" />
+          التوصيات والإجراءات المقترحة
+        </h3>
+        <ul className="space-y-3">
+          {recommendations.map((rec, i) => (
+            <li key={i} className="flex items-start gap-3 bg-gray-50 border border-gray-100 rounded-xl p-3">
+              <span className="text-xl leading-none mt-0.5">{rec.icon}</span>
+              <p className="text-sm text-gray-700 leading-relaxed">{rec.text}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
