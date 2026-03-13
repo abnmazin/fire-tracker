@@ -412,7 +412,7 @@ function Dashboard({ extinguishers, contacts, setContacts, user }) {
       <h2 className="text-xl md:text-2xl font-bold text-gray-800">نظرة عامة</h2>
       
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <StatCard title="إجمالي الطفايات" count={stats.total} icon={FireExtinguisher} color="bg-blue-500" />
+        <StatCard title="إجمالiي الطفايات" count={stats.total} icon={FireExtinguisher} color="bg-blue-500" />
         <StatCard title="صالحة للعمل" count={stats.valid} icon={ShieldCheck} color="bg-green-500" />
         <StatCard title="فحص قريب" count={stats.warning} icon={AlertTriangle} color="bg-yellow-500" />
         <StatCard title="تحتاج صيانة" count={stats.expired} icon={ShieldAlert} color="bg-red-600" />
