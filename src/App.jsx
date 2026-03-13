@@ -26,10 +26,33 @@ import {
   CheckSquare
 } from 'lucide-react';
 
+// دالة مساعدة لحفظ واسترجاع البيانات من LocalStorage
+function useLocalStorage(key, initialValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const item = window.localStorage.getItem(key);
+      return item ? JSON.parse(item) : initialValue;
+    } catch (error) {
+      console.warn("Error reading localStorage", error);
+      return initialValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      console.warn("Error setting localStorage", error);
+    }
+  }, [key, value]);
+
+  return [value, setValue];
+}
+
 // القائمة المنسدلة للمواقع
 const LOCATIONS = ['مسجد البصرة', 'موكب كربلا', 'موكب النجف', 'موكب سامراء', 'المشاية'];
 
-// --- البيانات الأولية (Mock Data) ---
+// --- البيانات الأولية (Mock Data) كقيمة افتراضية للمرة الأولى فقط ---
 const initialUsers = [
   { id: 1, name: 'المبرمج الأعلى', username: 'dev', password: '123', role: 'developer' },
   { id: 2, name: 'مدير النظام', username: 'admin', password: '123', role: 'admin' },
@@ -60,15 +83,15 @@ const calculateStatus = (nextDateStr) => {
   return 'صالحة';
 };
 
-// إنشاء تواريخ وهمية لتجربة النظام
+// إنشاء تواريخ وهمية
 const today = new Date();
 const formatDate = (d) => d.toISOString().split('T')[0];
 
 const dToday = formatDate(today);
 const d1MonthAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 1, today.getDate()));
 const d5MonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 5, today.getDate()));
-const d5AndHalfMonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 5, today.getDate() - 20)); // سينتهي بعد أيام
-const d8MonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 8, today.getDate())); // منتهي الصلاحية
+const d5AndHalfMonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 5, today.getDate() - 20)); 
+const d8MonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 8, today.getDate())); 
 
 const initialExtinguishers = [
   { id: 1, number: 'EXT-001', size: '6Kg', type: 'Powder', location: 'مسجد البصرة', subLocation: 'الطابق الأول - قرب الإدارة', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), status: 'صالحة', notes: '', inCabinet: true },
@@ -81,16 +104,18 @@ const initialExtinguishers = [
 ];
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(null);
+  // استخدام useLocalStorage بدلاً من useState لحفظ البيانات بشكل دائم
+  const [currentUser, setCurrentUser] = useLocalStorage('fireTracker_user', null);
   const [currentView, setCurrentView] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
-  const [extinguishers, setExtinguishers] = useState(initialExtinguishers);
-  const [logs, setLogs] = useState([]);
-  const [users, setUsers] = useState(initialUsers);
-  const [auditLogs, setAuditLogs] = useState([]);
-  const [contacts, setContacts] = useState(initialContacts);
+  const [extinguishers, setExtinguishers] = useLocalStorage('fireTracker_extinguishers', initialExtinguishers);
+  const [logs, setLogs] = useLocalStorage('fireTracker_logs', []);
+  const [users, setUsers] = useLocalStorage('fireTracker_users', initialUsers);
+  const [auditLogs, setAuditLogs] = useLocalStorage('fireTracker_auditLogs', []);
+  const [contacts, setContacts] = useLocalStorage('fireTracker_contacts', initialContacts);
 
+  // تحديث حالات الطفايات دائماً عند التحميل للتأكد من حساب التواريخ بشكل صحيح لليوم الحالي
   useEffect(() => {
     setExtinguishers(prev => prev.map(ext => ({
       ...ext,
