@@ -845,4 +845,5 @@ function AuditLogsList({ logs, userRole }) {
       </div>
     </div>
   );
+  
 }
