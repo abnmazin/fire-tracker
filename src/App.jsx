@@ -3,7 +3,8 @@ import {
   ShieldAlert, ShieldCheck, AlertTriangle, LogOut, Plus, FileText, 
   Settings, LayoutDashboard, FireExtinguisher, Search, Users,
   CheckCircle, XCircle, ClipboardList, ArrowRightLeft, Archive, Edit, Filter,
-  UserPlus, Trash2, Phone, Menu, X, MapPin, DatabaseBackup, Loader2, Calendar
+  UserPlus, Trash2, Phone, Menu, X, MapPin, DatabaseBackup, Loader2, Calendar,
+  MessageCircle
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -83,18 +84,6 @@ const calculateStatus = (nextDateStr) => {
   return 'صالحة';
 };
 
-const today = new Date();
-const formatDate = (d) => d.toISOString().split('T')[0];
-const d1MonthAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 1, today.getDate()));
-const d5MonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 5, today.getDate()));
-const d5AndHalfMonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 5, today.getDate() - 20)); 
-const d8MonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 8, today.getDate())); 
-
-const initialExtinguishers = [
-  { id: 1, number: 'EXT-001', size: '6Kg', type: 'Powder', location: 'مسجد البصرة', subLocation: 'الطابق الأول', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), status: 'صالحة', notes: 'يوجد خدش بسيط بالقاعدة', inCabinet: true },
-  { id: 2, number: 'EXT-002', size: '12Kg', type: 'CO2', location: 'موكب كربلاء', subLocation: 'المطبخ الرئيسي', lastDate: d8MonthsAgo, nextDate: calculateNextDate(d8MonthsAgo), status: 'منتهية', notes: 'تحتاج إعادة تعبئة سريع', inCabinet: false },
-];
-
 export default function App() {
   const [currentUser, setCurrentUser] = useLocalStorage('fireTracker_user', null);
   const [currentView, setCurrentView] = useState('dashboard');
@@ -144,19 +133,32 @@ export default function App() {
     return () => { unsubExt(); unsubUsers(); unsubLogs(); unsubContacts(); unsubLocs(); };
   }, [fbUser, setExtinguishers, setUsers, setAuditLogs, setContacts, setLocations]);
 
-  const logAction = async (action, details) => {
-    const newLog = { id: Date.now(), date: new Date().toLocaleString('ar-EG'), userName: currentUser?.name || 'مجهول', action, details };
-    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(newLog.id)), newLog);
+  // تسجيل النشاط بدون حجب الواجهة (Optimistic update)
+  const logAction = (action, details) => {
+    const d = new Date();
+    const dateString = d.toLocaleString('ar-EG');
+    const dayString = d.toLocaleDateString('ar-EG', { year: 'numeric', month: 'numeric', day: 'numeric' });
+    
+    const newLog = { 
+      id: Date.now(), 
+      date: dateString, 
+      dayStr: dayString, 
+      userName: currentUser?.name || 'مجهول', 
+      action, 
+      details 
+    };
+
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(newLog.id)), newLog).catch(()=>{});
     else setAuditLogs(prev => [newLog, ...prev]);
   };
 
-  const handleSaveContacts = async (newContacts) => {
-    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'contacts'), { list: newContacts });
+  const handleSaveContacts = (newContacts) => {
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'contacts'), { list: newContacts }).catch(()=>{});
     else setContacts(newContacts);
   };
 
-  const handleSaveLocations = async (newLocations) => {
-    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: newLocations });
+  const handleSaveLocations = (newLocations) => {
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: newLocations }).catch(()=>{});
     else setLocations(newLocations);
   };
 
@@ -167,7 +169,6 @@ export default function App() {
 
   if (!currentUser) return <LoginScreen onLogin={setCurrentUser} users={users} />;
 
-  // إعطاء لقب مميز للمستخدم في القائمة
   const getRoleLabel = (role) => {
     switch(role) {
       case 'developer': return 'المبرمج الأعلى';
@@ -180,7 +181,7 @@ export default function App() {
   const getRoleColor = (role) => {
     switch(role) {
       case 'developer': return 'bg-purple-900 border-purple-600';
-      case 'father': return 'bg-yellow-600 border-yellow-400 text-yellow-50'; // لون ذهبي للوالد
+      case 'father': return 'bg-yellow-600 border-yellow-400 text-yellow-50'; 
       default: return 'bg-red-900 border-red-600';
     }
   };
@@ -356,9 +357,25 @@ function Dashboard({ extinguishers, contacts, setContacts, user }) {
         </div>
         {contacts.length === 0 ? <p className="text-gray-500 text-sm text-center py-4">لا توجد أرقام مسجلة.</p> : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-            {contacts.map(c => (
-              <div key={c.id} className="border border-gray-100 bg-gray-50 p-4 rounded-xl flex flex-col justify-center items-center text-center shadow-sm"><span className="font-bold text-gray-800 mb-1">{c.name}</span><span className="text-blue-600 font-medium" dir="ltr">{c.phone}</span></div>
-            ))}
+            {contacts.map(c => {
+              // تنسيق الرقم للواتساب (تحويل الصفر بالبداية إلى 964)
+              const waNumber = c.phone.startsWith('0') ? '964' + c.phone.slice(1) : c.phone;
+              return (
+                <div key={c.id} className="border border-gray-200 bg-white p-4 rounded-xl flex flex-col justify-center items-center text-center shadow-sm hover:shadow transition-shadow">
+                  <span className="font-bold text-gray-800 mb-1 text-lg">{c.name}</span>
+                  <span className="text-gray-500 font-medium text-sm mb-4" dir="ltr">{c.phone}</span>
+                  
+                  <div className="flex w-full gap-2 border-t border-gray-100 pt-3">
+                    <a href={`tel:${c.phone}`} className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 rounded-lg flex items-center justify-center text-xs font-bold transition-colors">
+                      <Phone className="w-4 h-4 ml-1.5" /> اتصال
+                    </a>
+                    <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noreferrer" className="flex-1 bg-green-50 hover:bg-green-100 text-green-700 py-2 rounded-lg flex items-center justify-center text-xs font-bold transition-colors">
+                      <MessageCircle className="w-4 h-4 ml-1.5" /> واتساب
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -393,51 +410,48 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
            (filterLocation === 'All' || e.location === filterLocation);
   });
 
-  const handleAddExtinguisher = async (newExt) => {
+  const handleAddExtinguisher = (newExt) => {
     const newId = extinguishers.length ? Math.max(...extinguishers.map(e=>Number(e.id))) + 1 : 1;
     const extWithDates = { ...newExt, id: newId, nextDate: calculateNextDate(newExt.lastDate), status: calculateStatus(calculateNextDate(newExt.lastDate)) };
-    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(newId)), extWithDates);
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(newId)), extWithDates).catch(()=>{});
     else setExtinguishers(prev => [...prev, extWithDates]);
     setShowAddModal(false);
     logAction('إضافة طفاية', `إضافة طفاية ${newExt.number} في ${newExt.location}`);
   };
 
-  const handleInspect = async (extId, condition, remarks, date) => {
+  const handleInspect = (extId, condition, remarks, date) => {
     const ext = extinguishers.find(e => e.id === extId);
     if(!ext) return;
     const nextD = condition === 'سليمة' ? calculateNextDate(date) : ext.nextDate; 
-    // التحديث الأهم: مسح المسافات وإذا كانت فارغة تخزن كفارغة، وإلا تخزن الملاحظة
     const updatedExt = { ...ext, lastDate: date, nextDate: nextD, status: condition === 'سليمة' ? calculateStatus(nextD) : 'تحتاج صيانة', notes: remarks.trim() };
-    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(extId)), updatedExt);
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(extId)), updatedExt).catch(()=>{});
     else setExtinguishers(prev => prev.map(e => e.id === extId ? updatedExt : e));
     logAction('فحص ميداني', `فحص الطفاية ${ext.number} بنتيجة: ${condition}`);
     setInspectModalData(null);
   };
 
-  const handleEdit = async (updatedExt) => {
+  const handleEdit = (updatedExt) => {
     const extWithDates = { ...updatedExt, nextDate: calculateNextDate(updatedExt.lastDate), status: calculateStatus(calculateNextDate(updatedExt.lastDate)) };
-    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(updatedExt.id)), extWithDates);
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(updatedExt.id)), extWithDates).catch(()=>{});
     else setExtinguishers(prev => prev.map(e => e.id === updatedExt.id ? extWithDates : e));
     logAction('تعديل طفاية', `تعديل بيانات الطفاية ${updatedExt.number}`);
     setEditModalData(null);
   };
 
-  const handleTransfer = async (extIds, newLocation) => {
+  const handleTransfer = (extIds, newLocation) => {
     const extsToTransfer = extinguishers.filter(e => extIds.includes(e.id));
     if (db && fbUser) {
-      const promises = extsToTransfer.map(ext => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, location: newLocation }));
-      await Promise.all(promises);
+      extsToTransfer.forEach(ext => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, location: newLocation }).catch(()=>{}));
     } else { setExtinguishers(prev => prev.map(e => extIds.includes(e.id) ? { ...e, location: newLocation } : e)); }
     logAction(extIds.length > 1 ? 'ترحيل جماعي' : 'ترحيل طفاية', `نقل (${extsToTransfer.map(e=>e.number).join('، ')}) إلى ${newLocation}`);
     setTransferModalData(null); setSelectedIds([]); 
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     if (!bulkDeleteConfirmData || bulkDeleteConfirmData.length === 0) return;
     const extsToDelete = extinguishers.filter(e => bulkDeleteConfirmData.includes(e.id));
     if (db && fbUser) {
-      const promises = bulkDeleteConfirmData.map(id => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(id))));
-      await Promise.all(promises);
+      bulkDeleteConfirmData.forEach(id => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(id))).catch(()=>{}));
     } else { setExtinguishers(prev => prev.filter(e => !bulkDeleteConfirmData.includes(e.id))); }
     logAction('حذف طفايات', `حذف نهائي لـ (${bulkDeleteConfirmData.length}) طفاية: ${extsToDelete.map(e=>e.number).join('، ')}`);
     setBulkDeleteConfirmData(null); setSelectedIds([]);
@@ -522,24 +536,23 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
 
 function AddExtinguisherModal({ onClose, onAdd, locations }) {
   const [formData, setFormData] = useState({ number: '', size: '6Kg', type: 'Powder', location: locations[0] || '', subLocation: '', lastDate: new Date().toISOString().split('T')[0], notes: '', inCabinet: false });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const handleSubmit = async (e) => { e.preventDefault(); if(isSubmitting) return; setIsSubmitting(true); await onAdd(formData); };
+  const handleSubmit = (e) => { e.preventDefault(); onAdd(formData); };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto">
-        <div className="bg-red-600 text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg">إضافة طفاية</h3><button onClick={onClose} disabled={isSubmitting} className="text-red-200 hover:text-white p-1 disabled:opacity-50">&times;</button></div>
+        <div className="bg-red-600 text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg">إضافة طفاية</h3><button onClick={onClose} className="text-red-200 hover:text-white p-1">&times;</button></div>
         <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">
-          <div><label className="block text-sm text-gray-600 mb-1">رقم الطفاية</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-red-500" value={formData.number} onChange={e => setFormData({...formData, number: e.target.value})} disabled={isSubmitting} /></div>
+          <div><label className="block text-sm text-gray-600 mb-1">رقم الطفاية</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-red-500" value={formData.number} onChange={e => setFormData({...formData, number: e.target.value})} /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} disabled={isSubmitting}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option></select></div>
-            <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><input required type="text" className="w-full border p-2 rounded" value={formData.size} onChange={e => setFormData({...formData, size: e.target.value})} disabled={isSubmitting} /></div>
+            <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option></select></div>
+            <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><input required type="text" className="w-full border p-2 rounded" value={formData.size} onChange={e => setFormData({...formData, size: e.target.value})} /></div>
           </div>
-          <div><label className="block text-sm text-gray-600 mb-1">الموقع الرئيسي</label><select className="w-full border p-2 rounded" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} disabled={isSubmitting}>{locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}</select></div>
-          <div><label className="block text-sm text-gray-600 mb-1">الموقع الفرعي (اختياري)</label><input type="text" className="w-full border p-2 rounded" value={formData.subLocation} onChange={e => setFormData({...formData, subLocation: e.target.value})} disabled={isSubmitting} /></div>
-          <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="inCabinet" className="w-4 h-4 text-red-600 rounded" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} disabled={isSubmitting} /><label htmlFor="inCabinet" className="text-xs sm:text-sm font-medium text-gray-700 cursor-pointer">مثبتة داخل كابينة</label></div>
-          <div><label className="block text-sm text-gray-600 mb-1">تاريخ الفحص</label><input required type="date" className="w-full border p-2 rounded" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} disabled={isSubmitting} /></div>
-          <div className="pt-2 flex gap-2"><button type="submit" disabled={isSubmitting} className="flex-1 bg-red-600 text-white py-2.5 rounded-lg font-medium hover:bg-red-700 flex justify-center items-center disabled:opacity-70">{isSubmitting ? <><Loader2 className="w-5 h-5 ml-2 animate-spin"/> جاري الحفظ...</> : 'حفظ'}</button><button type="button" onClick={onClose} disabled={isSubmitting} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium hover:bg-gray-300 disabled:opacity-50">إلغاء</button></div>
+          <div><label className="block text-sm text-gray-600 mb-1">الموقع الرئيسي</label><select className="w-full border p-2 rounded" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})}>{locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}</select></div>
+          <div><label className="block text-sm text-gray-600 mb-1">الموقع الفرعي (اختياري)</label><input type="text" className="w-full border p-2 rounded" value={formData.subLocation} onChange={e => setFormData({...formData, subLocation: e.target.value})} /></div>
+          <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="inCabinet" className="w-4 h-4 text-red-600 rounded" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="inCabinet" className="text-xs sm:text-sm font-medium text-gray-700 cursor-pointer">مثبتة داخل كابينة</label></div>
+          <div><label className="block text-sm text-gray-600 mb-1">تاريخ الفحص</label><input required type="date" className="w-full border p-2 rounded" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
+          <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-red-600 text-white py-2.5 rounded-lg font-medium hover:bg-red-700 flex justify-center items-center">حفظ</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium hover:bg-gray-300">إلغاء</button></div>
         </form>
       </div>
     </div>
@@ -548,24 +561,23 @@ function AddExtinguisherModal({ onClose, onAdd, locations }) {
 
 function EditExtinguisherModal({ ext, onClose, onEdit, locations }) {
   const [formData, setFormData] = useState({ ...ext });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const handleSubmit = async (e) => { e.preventDefault(); if(isSubmitting) return; setIsSubmitting(true); await onEdit(formData); };
+  const handleSubmit = (e) => { e.preventDefault(); onEdit(formData); };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto">
-        <div className="bg-green-600 text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg">تعديل بيانات الطفاية</h3><button onClick={onClose} disabled={isSubmitting} className="text-green-200 hover:text-white p-1 disabled:opacity-50">&times;</button></div>
+        <div className="bg-green-600 text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg">تعديل بيانات الطفاية</h3><button onClick={onClose} className="text-green-200 hover:text-white p-1">&times;</button></div>
         <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">
-          <div><label className="block text-sm text-gray-600 mb-1">رقم الطفاية</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.number} onChange={e => setFormData({...formData, number: e.target.value})} disabled={isSubmitting} /></div>
+          <div><label className="block text-sm text-gray-600 mb-1">رقم الطفاية</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.number} onChange={e => setFormData({...formData, number: e.target.value})} /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})} disabled={isSubmitting}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option></select></div>
-            <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.size} onChange={e => setFormData({...formData, size: e.target.value})} disabled={isSubmitting} /></div>
+            <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option></select></div>
+            <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.size} onChange={e => setFormData({...formData, size: e.target.value})} /></div>
           </div>
-          <div><label className="block text-sm text-gray-600 mb-1">الموقع الرئيسي</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} disabled={isSubmitting}>{locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}</select></div>
-          <div><label className="block text-sm text-gray-600 mb-1">الموقع الفرعي (اختياري)</label><input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.subLocation || ''} onChange={e => setFormData({...formData, subLocation: e.target.value})} disabled={isSubmitting} /></div>
-          <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="editInCabinet" className="w-4 h-4 text-green-600 rounded focus:ring-green-500 cursor-pointer" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} disabled={isSubmitting} /><label htmlFor="editInCabinet" className="text-xs sm:text-sm font-medium text-gray-700 cursor-pointer select-none leading-tight">مثبتة داخل كابينة</label></div>
-          <div><label className="block text-sm text-gray-600 mb-1">تاريخ آخر فحص</label><input required type="date" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} disabled={isSubmitting} /></div>
-          <div className="pt-2 flex gap-2"><button type="submit" disabled={isSubmitting} className="flex-1 bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 flex justify-center items-center disabled:opacity-70">{isSubmitting ? <><Loader2 className="w-5 h-5 ml-2 animate-spin"/> حفظ...</> : 'حفظ التعديلات'}</button><button type="button" onClick={onClose} disabled={isSubmitting} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium hover:bg-gray-300 disabled:opacity-50">إلغاء</button></div>
+          <div><label className="block text-sm text-gray-600 mb-1">الموقع الرئيسي</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})}>{locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}</select></div>
+          <div><label className="block text-sm text-gray-600 mb-1">الموقع الفرعي (اختياري)</label><input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.subLocation || ''} onChange={e => setFormData({...formData, subLocation: e.target.value})} /></div>
+          <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="editInCabinet" className="w-4 h-4 text-green-600 rounded focus:ring-green-500 cursor-pointer" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="editInCabinet" className="text-xs sm:text-sm font-medium text-gray-700 cursor-pointer select-none leading-tight">مثبتة داخل كابينة</label></div>
+          <div><label className="block text-sm text-gray-600 mb-1">تاريخ آخر فحص</label><input required type="date" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
+          <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-green-600 text-white py-2.5 rounded-lg font-medium hover:bg-green-700 flex justify-center items-center">حفظ التعديلات</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium hover:bg-gray-300">إلغاء</button></div>
         </form>
       </div>
     </div>
@@ -574,21 +586,19 @@ function EditExtinguisherModal({ ext, onClose, onEdit, locations }) {
 
 function InspectModal({ ext, onClose, onSubmit }) {
   const [condition, setCondition] = useState('سليمة');
-  // جلب الملاحظة القديمة إذا كانت موجودة لكي يراها المفتش ويقرر تعديلها أو مسحها
   const [remarks, setRemarks] = useState(ext.notes || ''); 
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const handleSubmit = async (e) => { e.preventDefault(); if(isSubmitting) return; setIsSubmitting(true); await onSubmit(ext.id, condition, remarks, date); };
+  const handleSubmit = (e) => { e.preventDefault(); onSubmit(ext.id, condition, remarks, date); };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto">
-        <div className="bg-blue-600 text-white p-4 flex justify-between"><h3 className="font-bold text-lg">تسجيل فحص ميداني</h3><button onClick={onClose} disabled={isSubmitting} className="text-blue-200 hover:text-white">&times;</button></div>
+        <div className="bg-blue-600 text-white p-4 flex justify-between"><h3 className="font-bold text-lg">تسجيل فحص ميداني</h3><button onClick={onClose} className="text-blue-200 hover:text-white">&times;</button></div>
         <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">
-          <div><label className="block text-sm text-gray-600 mb-1">تاريخ الفحص</label><input required type="date" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={date} onChange={e => setDate(e.target.value)} disabled={isSubmitting} /></div>
-          <div><label className="block text-sm text-gray-600 mb-1">حالة الطفاية</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={condition} onChange={e => setCondition(e.target.value)} disabled={isSubmitting}><option value="سليمة">سليمة (يجدد الصلاحية 6 أشهر)</option><option value="تالفة">تالفة / تحتاج استبدال</option><option value="تسريب">يوجد تسريب</option><option value="إعادة تعبئة">تحتاج إعادة تعبئة</option></select></div>
-          <div><label className="block text-sm text-gray-600 mb-1">ملاحظات (امسح النص لإلغاء الملاحظة السابقة)</label><textarea className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 h-24 text-sm" value={remarks} onChange={e => setRemarks(e.target.value)} disabled={isSubmitting} placeholder="اكتب الملاحظات هنا..." /></div>
-          <div className="pt-2 flex gap-2"><button type="submit" disabled={isSubmitting} className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 flex justify-center items-center disabled:opacity-70">{isSubmitting ? <><Loader2 className="w-5 h-5 ml-2 animate-spin"/> حفظ...</> : 'تأكيد الفحص'}</button><button type="button" onClick={onClose} disabled={isSubmitting} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium hover:bg-gray-300 disabled:opacity-50">إلغاء</button></div>
+          <div><label className="block text-sm text-gray-600 mb-1">تاريخ الفحص</label><input required type="date" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={date} onChange={e => setDate(e.target.value)} /></div>
+          <div><label className="block text-sm text-gray-600 mb-1">حالة الطفاية</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={condition} onChange={e => setCondition(e.target.value)}><option value="سليمة">سليمة (يجدد الصلاحية 6 أشهر)</option><option value="تالفة">تالفة / تحتاج استبدال</option><option value="تسريب">يوجد تسريب</option><option value="إعادة تعبئة">تحتاج إعادة تعبئة</option></select></div>
+          <div><label className="block text-sm text-gray-600 mb-1">ملاحظات (امسح النص لإلغاء الملاحظة السابقة)</label><textarea className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 h-24 text-sm" value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="اكتب الملاحظات هنا..." /></div>
+          <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 flex justify-center items-center">تأكيد الفحص</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium hover:bg-gray-300">إلغاء</button></div>
         </form>
       </div>
     </div>
@@ -596,8 +606,6 @@ function InspectModal({ ext, onClose, onSubmit }) {
 }
 
 function ConfirmBulkDeleteModal({ count, onClose, onConfirm }) {
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const handleConfirm = async () => { if(isSubmitting) return; setIsSubmitting(true); await onConfirm(); };
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden my-auto p-6 text-center">
@@ -605,8 +613,8 @@ function ConfirmBulkDeleteModal({ count, onClose, onConfirm }) {
         <h3 className="text-xl font-bold text-gray-800 mb-2">تأكيد الحذف</h3>
         <p className="text-sm text-gray-600 mb-6">هل أنت متأكد من رغبتك في حذف <strong className="text-red-600">({count})</strong> طفاية بشكل نهائي؟</p>
         <div className="flex gap-3">
-          <button onClick={handleConfirm} disabled={isSubmitting} className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-medium transition-colors shadow-md flex justify-center items-center disabled:opacity-70">{isSubmitting ? <Loader2 className="w-5 h-5 animate-spin"/> : 'نعم، احذف'}</button>
-          <button onClick={onClose} disabled={isSubmitting} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium transition-colors disabled:opacity-50">إلغاء</button>
+          <button onClick={onConfirm} className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-medium transition-colors shadow-md flex justify-center items-center">نعم، احذف</button>
+          <button onClick={onClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium transition-colors">إلغاء</button>
         </div>
       </div>
     </div>
@@ -615,34 +623,31 @@ function ConfirmBulkDeleteModal({ count, onClose, onConfirm }) {
 
 function TransferModal({ exts, onClose, onSubmit, locations }) {
   const [newLocation, setNewLocation] = useState(locations[0] || '');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const handleSubmit = async (e) => { e.preventDefault(); if(isSubmitting || newLocation.trim() === '') return; setIsSubmitting(true); await onSubmit(exts.map(e => e.id), newLocation); };
+  const handleSubmit = (e) => { e.preventDefault(); if(newLocation.trim() === '') return; onSubmit(exts.map(e => e.id), newLocation); };
   const isSingle = exts.length === 1;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto"><div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto"><div className="bg-purple-600 text-white p-4"><h3 className="font-bold text-lg flex items-center"><ArrowRightLeft className="w-5 h-5 ml-2" /> {isSingle ? 'ترحيل الطفاية' : 'ترحيل جماعي'}</h3><p className="text-sm text-purple-100 opacity-90 mt-1">{isSingle ? `رقم: ${exts[0].number}` : `العدد: ${exts.length}`}</p></div><form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">{isSingle && (<div><label className="block text-sm text-gray-600 mb-1">الموقع الحالي</label><input type="text" disabled className="w-full border p-2 rounded bg-gray-100 text-gray-500" value={exts[0].location} /></div>)}<div><label className="block text-sm text-gray-600 mb-1">الموقع الجديد</label><select required className="w-full border p-2 rounded focus:ring-2 focus:ring-purple-500" value={newLocation} onChange={e => setNewLocation(e.target.value)} disabled={isSubmitting}>{locations.map(loc => <option key={loc} value={loc} disabled={isSingle && exts[0].location === loc}>{loc}</option>)}</select></div><div className="pt-2 flex gap-2"><button type="submit" disabled={isSubmitting} className="flex-1 bg-purple-600 text-white py-2.5 rounded-lg font-medium flex justify-center items-center disabled:opacity-70">{isSubmitting ? <><Loader2 className="w-5 h-5 ml-2 animate-spin"/> حفظ...</> : 'تأكيد الترحيل'}</button><button type="button" onClick={onClose} disabled={isSubmitting} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium disabled:opacity-50">إلغاء</button></div></form></div></div>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto"><div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto"><div className="bg-purple-600 text-white p-4"><h3 className="font-bold text-lg flex items-center"><ArrowRightLeft className="w-5 h-5 ml-2" /> {isSingle ? 'ترحيل الطفاية' : 'ترحيل جماعي'}</h3><p className="text-sm text-purple-100 opacity-90 mt-1">{isSingle ? `رقم: ${exts[0].number}` : `العدد: ${exts.length}`}</p></div><form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">{isSingle && (<div><label className="block text-sm text-gray-600 mb-1">الموقع الحالي</label><input type="text" disabled className="w-full border p-2 rounded bg-gray-100 text-gray-500" value={exts[0].location} /></div>)}<div><label className="block text-sm text-gray-600 mb-1">الموقع الجديد</label><select required className="w-full border p-2 rounded focus:ring-2 focus:ring-purple-500" value={newLocation} onChange={e => setNewLocation(e.target.value)}>{locations.map(loc => <option key={loc} value={loc} disabled={isSingle && exts[0].location === loc}>{loc}</option>)}</select></div><div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-purple-600 text-white py-2.5 rounded-lg font-medium flex justify-center items-center">تأكيد الترحيل</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium">إلغاء</button></div></form></div></div>
   );
 }
 
 function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId }) {
   const [showAddModal, setShowAddModal] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (currentUser.role === 'member') return <div className="p-8 text-center text-red-500">عذراً، ليس لديك صلاحية.</div>;
 
-  const handleAddUser = async (newUser) => {
-    setIsSubmitting(true);
+  const handleAddUser = (newUser) => {
     const newId = users.length ? Math.max(...users.map(u => Number(u.id))) + 1 : 1;
     const userObj = { ...newUser, id: newId };
-    if (db && fbUser) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(newId)), userObj);
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(newId)), userObj).catch(()=>{});
     else setUsers([...users, userObj]);
-    setShowAddModal(false); setIsSubmitting(false);
+    setShowAddModal(false);
     logAction('إضافة مستخدم', `إضافة حساب "${newUser.name}"`);
   };
 
-  const handleDeleteUser = async (id, name) => {
+  const handleDeleteUser = (id, name) => {
     if (id === currentUser.id) return; 
-    if (db && fbUser) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(id)));
+    if (db && fbUser) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(id))).catch(()=>{});
     else setUsers(users.filter(u => u.id !== id));
     logAction('حذف مستخدم', `حذف حساب "${name}"`);
   };
@@ -688,16 +693,16 @@ function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId 
           </div>
         ))}
       </div>
-      {showAddModal && <AddUserModal onClose={() => setShowAddModal(false)} onAdd={handleAddUser} currentUser={currentUser} isSubmitting={isSubmitting} />}
+      {showAddModal && <AddUserModal onClose={() => setShowAddModal(false)} onAdd={handleAddUser} currentUser={currentUser} />}
     </div>
   );
 }
 
-function AddUserModal({ onClose, onAdd, currentUser, isSubmitting }) {
+function AddUserModal({ onClose, onAdd, currentUser }) {
   const [formData, setFormData] = useState({ name: '', username: '', password: '', role: 'member' });
   const handleSubmit = (e) => { e.preventDefault(); onAdd(formData); };
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto"><div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto"><div className="bg-blue-600 text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg">إضافة مستخدم</h3><button onClick={onClose} disabled={isSubmitting} className="text-blue-200 hover:text-white p-1 disabled:opacity-50">&times;</button></div><form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4"><div><label className="block text-sm text-gray-600 mb-1">الاسم الكامل</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} disabled={isSubmitting} /></div><div><label className="block text-sm text-gray-600 mb-1">الحساب</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} dir="ltr" disabled={isSubmitting} /></div><div><label className="block text-sm text-gray-600 mb-1">المرور</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} dir="ltr" disabled={isSubmitting} /></div><div><label className="block text-sm text-gray-600 mb-1">الصلاحية</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})} disabled={isSubmitting}><option value="member">مفتش (محدودة)</option><option value="admin">مسؤول (إدارة)</option>{currentUser.role === 'developer' && (<><option value="father">مشرف عام (الوالد)</option><option value="developer">مبرمج (كاملة)</option></>)}</select></div><div className="pt-2 flex gap-2"><button type="submit" disabled={isSubmitting} className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-medium flex justify-center items-center disabled:opacity-70">{isSubmitting ? <Loader2 className="w-5 h-5 animate-spin"/> : 'إضافة'}</button><button type="button" onClick={onClose} disabled={isSubmitting} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium disabled:opacity-50">إلغاء</button></div></form></div></div>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto"><div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto"><div className="bg-blue-600 text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg">إضافة مستخدم</h3><button onClick={onClose} className="text-blue-200 hover:text-white p-1">&times;</button></div><form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4"><div><label className="block text-sm text-gray-600 mb-1">الاسم الكامل</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div><div><label className="block text-sm text-gray-600 mb-1">الحساب</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} dir="ltr" /></div><div><label className="block text-sm text-gray-600 mb-1">المرور</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} dir="ltr" /></div><div><label className="block text-sm text-gray-600 mb-1">الصلاحية</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}><option value="member">مفتش (محدودة)</option><option value="admin">مسؤول (إدارة)</option>{currentUser.role === 'developer' && (<><option value="father">مشرف عام (الوالد)</option><option value="developer">مبرمج (كاملة)</option></>)}</select></div><div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-medium flex justify-center items-center">إضافة</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium">إلغاء</button></div></form></div></div>
   );
 }
 
@@ -706,19 +711,17 @@ function AuditLogsList({ logs, userRole }) {
 
   const [selectedDay, setSelectedDay] = useState('All');
 
-  // استخراج الأيام فقط لعمل فلتر
   const logsWithDay = useMemo(() => {
     return logs.map(log => {
-      // التاريخ مخزن بصيغة: 13/3/2026, 09:50 AM، نقوم بقص الجزء الأول فقط
-      const dayStr = log.date.split(/,|،/)[0].trim();
+      // تنظيف واستخراج اليوم كقيمة صريحة لتجنب المشاكل
+      const dayStr = log.dayStr || log.date.split(/,|،/)[0].trim();
       return { ...log, dayStr };
     });
   }, [logs]);
 
-  // إنشاء قائمة بالأيام الفريدة المتوفرة في السجل
   const availableDays = useMemo(() => {
     const days = new Set(logsWithDay.map(l => l.dayStr));
-    return [...days]; // بدون ترتيب لأنها مرتبة أصلاً حسب الأحدث
+    return [...days]; 
   }, [logsWithDay]);
 
   const filteredLogs = useMemo(() => {
@@ -732,7 +735,6 @@ function AuditLogsList({ logs, userRole }) {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <h2 className="text-xl font-bold text-gray-800 flex items-center"><ClipboardList className="w-6 h-6 ml-2 text-red-600" />سجل التغييرات والمهام</h2>
         
-        {/* فلتر الأيام */}
         <div className="w-full sm:w-auto relative">
           <Calendar className="w-4 h-4 absolute right-3 top-3 text-gray-500" />
           <select 
@@ -749,12 +751,10 @@ function AuditLogsList({ logs, userRole }) {
         </div>
       </div>
       
-      {/* العرض الخاص بالشاشات الكبيرة (جدول) */}
       <div className="hidden md:block overflow-x-auto w-full">
         <table className="w-full text-right min-w-[600px]"><thead className="bg-gray-50 text-gray-600 text-sm border-y"><tr><th className="p-3">التاريخ والوقت</th><th className="p-3">المستخدم</th><th className="p-3">الإجراء</th><th className="p-3">التفاصيل</th></tr></thead><tbody className="divide-y divide-gray-100 text-sm">{filteredLogs.length === 0 ? <tr><td colSpan="4" className="p-8 text-center text-gray-500">لا توجد سجلات لهذا اليوم.</td></tr> : filteredLogs.map(log => <tr key={log.id} className="hover:bg-gray-50"><td className="p-3 text-gray-500 whitespace-nowrap" dir="ltr">{log.date}</td><td className="p-3 font-medium text-blue-700 whitespace-nowrap">{log.userName}</td><td className="p-3"><span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-lg text-[11px] font-bold border whitespace-nowrap">{log.action}</span></td><td className="p-3 text-gray-700 min-w-[200px]">{log.details}</td></tr>)}</tbody></table>
       </div>
 
-      {/* العرض الخاص بالموبايل (بطاقات متراصة) */}
       <div className="md:hidden flex flex-col gap-3">
         {filteredLogs.length === 0 ? (
           <div className="p-8 text-center text-gray-500 bg-gray-50 rounded-xl border border-gray-100">لا توجد سجلات لهذا اليوم.</div>
@@ -775,7 +775,6 @@ function AuditLogsList({ logs, userRole }) {
   );
 }
 
-// 10. إعدادات المطور
 function DeveloperSettings({ locations, setLocations, auditLogs, setAuditLogs, extinguishers, db, fbUser, appId, logAction, currentUser }) {
   const [newLocation, setNewLocation] = useState('');
   const [isClearingLogs, setIsClearingLogs] = useState(false);
@@ -798,21 +797,21 @@ function DeveloperSettings({ locations, setLocations, auditLogs, setAuditLogs, e
     }
   };
 
-  const clearLogs = async () => {
+  const clearLogs = () => {
     if (!window.confirm("تحذير: هل أنت متأكد من مسح جميع سجلات النشاطات نهائياً؟")) return;
     setIsClearingLogs(true);
     if (db && fbUser) {
-      for (const log of auditLogs) { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(log.id))); }
+      auditLogs.forEach(log => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(log.id))).catch(()=>{}));
     } else { setAuditLogs([]); }
     logAction('تنظيف النظام', 'تم مسح سجل النشاطات بالكامل بواسطة المطور.');
     setIsClearingLogs(false);
   };
 
-  const wipeAllExtinguishers = async () => {
+  const wipeAllExtinguishers = () => {
     if (!window.confirm("🚨 تحذير خطير جداً: هل أنت متأكد من مسح جميع بيانات الطفايات من قاعدة البيانات؟ لا يمكن التراجع!")) return;
     setIsWipingData(true);
     if (db && fbUser) {
-      for (const ext of extinguishers) { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))); }
+      extinguishers.forEach(ext => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))).catch(()=>{}));
     } else { window.localStorage.setItem('fireTracker_extinguishers', '[]'); window.location.reload(); }
     logAction('تهيئة النظام', 'تم مسح قاعدة بيانات الطفايات بالكامل (إعادة ضبط المصنع).');
     setIsWipingData(false);
@@ -822,7 +821,6 @@ function DeveloperSettings({ locations, setLocations, auditLogs, setAuditLogs, e
     <div className="space-y-6 max-w-3xl mx-auto pb-10">
       <h2 className="text-2xl font-bold text-gray-800 border-b pb-4 flex items-center"><Settings className="w-6 h-6 ml-2 text-red-600"/> إعدادات النظام الأساسية (للمطور)</h2>
       
-      {/* إدارة المواقع */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
         <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><MapPin className="w-5 h-5 ml-2 text-blue-600"/> إدارة المواقع الأساسية</h3>
         <div className="flex gap-2 mb-4">
@@ -840,7 +838,6 @@ function DeveloperSettings({ locations, setLocations, auditLogs, setAuditLogs, e
         <p className="text-xs text-gray-400 mt-4">* هذه المواقع ستظهر في قوائم إضافة وترحيل الطفايات.</p>
       </div>
 
-      {/* أدوات الخطر */}
       <div className="bg-white rounded-xl shadow-sm border border-red-200 p-5">
         <h3 className="text-lg font-bold text-red-700 mb-4 flex items-center"><DatabaseBackup className="w-5 h-5 ml-2"/> منطقة الخطر (إدارة البيانات)</h3>
         
@@ -866,7 +863,6 @@ function DeveloperSettings({ locations, setLocations, auditLogs, setAuditLogs, e
           </div>
         </div>
       </div>
-
     </div>
   );
 }
