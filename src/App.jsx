@@ -5,12 +5,10 @@ import {
   CheckCircle, XCircle, ClipboardList, ArrowRightLeft, Archive, Edit, Filter,
   UserPlus, Trash2, Phone, Menu, X, CheckSquare
 } from 'lucide-react';
-
 // استيراد أدوات فايربيس (Firebase)
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, enableIndexedDbPersistence } from 'firebase/firestore';
-import { getAnalytics } from "firebase/analytics";
 
 // ==========================================
 // 🔥 إعدادات قاعدة بيانات فايربيس (Firebase) 🔥
@@ -18,31 +16,24 @@ import { getAnalytics } from "firebase/analytics";
 let app, auth, db, appId;
 
 try {
-  // التحقق مما إذا كان الكود يعمل في بيئة المحاكي (Canvas)
-  if (typeof __firebase_config !== 'undefined') {
-    app = initializeApp(JSON.parse(__firebase_config));
-    appId = typeof __app_id !== 'undefined' ? __app_id : 'fire-tracker-ed183';
-  } else {
-    // ⬇️ ضع إعدادات مشروعك الحقيقي في فايربيس هنا ⬇️
-const firebaseConfig = {
-  apiKey: "AIzaSyDNy82azv_tH5SNe_52eWwwHQATYtgXgh4",
-  authDomain: "fire-tracker-ed183.firebaseapp.com",
-  projectId: "fire-tracker-ed183",
-  storageBucket: "fire-tracker-ed183.firebasestorage.app",
-  messagingSenderId: "419744627127",
-  appId: "1:419744627127:web:16516d132fee41bdbf5032",
-  measurementId: "G-3C58HWP3KE"
-};
-    // سيعمل فايربيس فقط إذا قمت بتغيير المفتاح أعلاه
-    if (localFirebaseConfig.apiKey !== "BOV1AYm7DuEFVynl-wOKMBDbA2woCgwszK8NaJ7oB2SDpJrVy75drvaxOvzo083OXGdd722Yfb-WzkeGc7boQ4Y") {
-      app = initializeApp(localFirebaseConfig);
-      appId = 'fire-tracker-ed183';
-    }
-  }
+  // إعدادات مشروعك الحقيقي في فايربيس
+  const firebaseConfig = {
+    apiKey: "AIzaSyDNy82azv_tH5SNe_52eWwwHQATYtgXgh4",
+    authDomain: "fire-tracker-ed183.firebaseapp.com",
+    projectId: "fire-tracker-ed183",
+    storageBucket: "fire-tracker-ed183.firebasestorage.app",
+    messagingSenderId: "419744627127",
+    appId: "1:419744627127:web:16516d132fee41bdbf5032"
+  };
+
+  // تشغيل فايربيس
+  app = initializeApp(firebaseConfig);
+  appId = 'fire-tracker-ed183';
 
   if (app) {
     auth = getAuth(app);
     db = getFirestore(app);
+    
     // تفعيل العمل بدون إنترنت (Offline Persistence)
     try {
       enableIndexedDbPersistence(db).catch(err => console.warn("ملاحظة التخزين المحلي:", err.message));
@@ -51,6 +42,7 @@ const firebaseConfig = {
 } catch (e) {
   console.error("خطأ في تهيئة فايربيس:", e);
 }
+// ==========================================
 // ==========================================
 
 // دالة مساعدة لحفظ البيانات احتياطياً في LocalStorage
@@ -412,7 +404,7 @@ function Dashboard({ extinguishers, contacts, setContacts, user }) {
       <h2 className="text-xl md:text-2xl font-bold text-gray-800">نظرة عامة</h2>
       
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <StatCard title="إجمالiي الطفايات" count={stats.total} icon={FireExtinguisher} color="bg-blue-500" />
+        <StatCard title="إجمالي الطفايات" count={stats.total} icon={FireExtinguisher} color="bg-blue-500" />
         <StatCard title="صالحة للعمل" count={stats.valid} icon={ShieldCheck} color="bg-green-500" />
         <StatCard title="فحص قريب" count={stats.warning} icon={AlertTriangle} color="bg-yellow-500" />
         <StatCard title="تحتاج صيانة" count={stats.expired} icon={ShieldAlert} color="bg-red-600" />
