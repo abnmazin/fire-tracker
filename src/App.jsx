@@ -10,6 +10,7 @@ import {
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, enableIndexedDbPersistence } from 'firebase/firestore';
+import { getAnalytics } from "firebase/analytics";
 
 // ==========================================
 // 🔥 إعدادات قاعدة بيانات فايربيس (Firebase) 🔥
@@ -23,15 +24,15 @@ try {
     appId = typeof __app_id !== 'undefined' ? __app_id : 'fire-tracker-ed183';
   } else {
     // ⬇️ ضع إعدادات مشروعك الحقيقي في فايربيس هنا ⬇️
-    const localFirebaseConfig = {
-      apiKey: "BOV1AYm7DuEFVynl-wOKMBDbA2woCgwszK8NaJ7oB2SDpJrVy75drvaxOvzo083OXGdd722Yfb-WzkeGc7boQ4Y",
-      authDomain: "fire-tracker-ed183.firebaseapp.com",
-      projectId: "fire-tracker-ed183",
-      storageBucket: "fire-tracker-ed183.appspot.com",
-      messagingSenderId: "419744627127",
-      appId: "fire-tracker-ed183"
-    };
-    
+const firebaseConfig = {
+  apiKey: "AIzaSyDNy82azv_tH5SNe_52eWwwHQATYtgXgh4",
+  authDomain: "fire-tracker-ed183.firebaseapp.com",
+  projectId: "fire-tracker-ed183",
+  storageBucket: "fire-tracker-ed183.firebasestorage.app",
+  messagingSenderId: "419744627127",
+  appId: "1:419744627127:web:16516d132fee41bdbf5032",
+  measurementId: "G-3C58HWP3KE"
+};
     // سيعمل فايربيس فقط إذا قمت بتغيير المفتاح أعلاه
     if (localFirebaseConfig.apiKey !== "BOV1AYm7DuEFVynl-wOKMBDbA2woCgwszK8NaJ7oB2SDpJrVy75drvaxOvzo083OXGdd722Yfb-WzkeGc7boQ4Y") {
       app = initializeApp(localFirebaseConfig);
