@@ -887,6 +887,7 @@ function TransferModal({ exts, onClose, onSubmit, locations }) {
 
 function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId }) {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editModalUser, setEditModalUser] = useState(null);
 
   if (currentUser.role === 'member') return <div className="p-8 text-center text-red-500">عذراً، ليس لديك صلاحية.</div>;
 
@@ -905,6 +906,15 @@ function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId 
     else setUsers(users.filter(u => u.id !== id));
     logAction('حذف مستخدم', `حذف حساب "${name}"`);
   };
+
+  const handleEditUser = (updatedUser) => {
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(updatedUser.id)), updatedUser).catch(()=>{});
+    else setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    logAction('تعديل مستخدم', `تعديل بيانات حساب "${updatedUser.name}"`);
+    setEditModalUser(null);
+  };
+
+  const canEdit = (targetId, targetRole) => targetId !== currentUser.id && (currentUser.role === 'developer' || ((currentUser.role === 'admin' || currentUser.role === 'father') && targetRole !== 'developer' && targetRole !== 'father'));
 
   const canSeePassword = (targetRole) => currentUser.role === 'developer' || ((currentUser.role === 'admin' || currentUser.role === 'father') && targetRole !== 'developer');
   const canDelete = (targetId, targetRole) => targetId !== currentUser.id && (currentUser.role === 'developer' || ((currentUser.role === 'admin' || currentUser.role === 'father') && targetRole !== 'developer' && targetRole !== 'father'));
@@ -932,7 +942,7 @@ function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId 
                 <td className="p-3 font-medium">{u.name}</td><td className="p-3 text-gray-600" dir="ltr">{u.username}</td>
                 <td className="p-3 text-gray-400 font-mono tracking-widest">{canSeePassword(u.role) ? u.password : '••••••'}</td>
                 <td className="p-3"><span className={`px-2 py-1 rounded-full text-[11px] font-bold border ${getRoleBadgeColor(u.role)}`}>{getRoleLabel(u.role)}</span></td>
-                <td className="p-3 text-center">{canDelete(u.id, u.role) ? (<button onClick={() => handleDeleteUser(u.id, u.name)} className="text-red-500 hover:text-red-700 bg-red-50 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center justify-center mx-auto"><Trash2 className="w-3 h-3 ml-1" /> حذف</button>) : (<span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-1 rounded">غير مصرح</span>)}</td>
+                <td className="p-3 text-center"><div className="flex justify-center gap-2">{canEdit(u.id, u.role) && (<button onClick={() => setEditModalUser(u)} className="bg-gray-50 text-gray-600 hover:bg-gray-200 px-2 py-1.5 rounded text-xs font-medium flex items-center border"><Edit className="w-3 h-3 ml-1" /> تعديل</button>)}{canDelete(u.id, u.role) ? (<button onClick={() => handleDeleteUser(u.id, u.name)} className="text-red-500 hover:text-red-700 bg-red-50 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center justify-center"><Trash2 className="w-3 h-3 ml-1" /> حذف</button>) : (<span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-1 rounded">غير مصرح</span>)}</div></td>
               </tr>
             ))}
           </tbody></table>
@@ -943,11 +953,43 @@ function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId 
             <div className="flex justify-between items-start"><span className="font-bold text-gray-800">{u.name}</span><span className={`px-2 py-1 rounded-full text-[10px] font-bold border ${getRoleBadgeColor(u.role)}`}>{getRoleLabel(u.role)}</span></div>
             <div className="text-sm text-gray-600 bg-white p-2 rounded border">الحساب: <span dir="ltr" className="font-medium text-gray-800">{u.username}</span></div>
             <div className="text-sm text-gray-600 bg-white p-2 rounded border">كلمة المرور: <span dir="ltr" className="text-gray-400 font-mono tracking-widest">{canSeePassword(u.role) ? u.password : '••••••'}</span></div>
-            {canDelete(u.id, u.role) && <button onClick={() => handleDeleteUser(u.id, u.name)} className="w-full mt-1 bg-red-50 text-red-600 py-2 rounded-lg text-sm font-medium flex justify-center items-center"><Trash2 className="w-4 h-4 ml-1" /> حذف</button>}
+            <div className="flex gap-2">{canEdit(u.id, u.role) && (<button onClick={() => setEditModalUser(u)} className="flex-1 bg-gray-100 text-gray-700 hover:bg-gray-200 py-2 rounded-lg text-sm font-medium flex justify-center items-center border"><Edit className="w-4 h-4 ml-1" /> تعديل</button>)}{canDelete(u.id, u.role) && (<button onClick={() => handleDeleteUser(u.id, u.name)} className="flex-1 bg-red-50 text-red-600 py-2 rounded-lg text-sm font-medium flex justify-center items-center"><Trash2 className="w-4 h-4 ml-1" /> حذف</button>)}</div>
           </div>
         ))}
       </div>
       {showAddModal && <AddUserModal onClose={() => setShowAddModal(false)} onAdd={handleAddUser} currentUser={currentUser} />}
+      {editModalUser && <EditUserModal user={editModalUser} onClose={() => setEditModalUser(null)} onEdit={handleEditUser} currentUser={currentUser} />}
+    </div>
+  );
+}
+
+function EditUserModal({ user, onClose, onEdit, currentUser }) {
+  const [formData, setFormData] = useState({ ...user });
+  const handleSubmit = (e) => { e.preventDefault(); onEdit(formData); };
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto">
+        <div className="bg-green-600 text-white p-4 flex justify-between items-center">
+          <h3 className="font-bold text-lg flex items-center"><Edit className="w-5 h-5 ml-2" /> تعديل بيانات المستخدم</h3>
+          <button onClick={onClose} className="text-green-200 hover:text-white p-1">&times;</button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">
+          <div><label className="block text-sm text-gray-600 mb-1">الاسم الكامل</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
+          <div><label className="block text-sm text-gray-600 mb-1">الحساب</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} dir="ltr" /></div>
+          <div><label className="block text-sm text-gray-600 mb-1">كلمة المرور</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} dir="ltr" /></div>
+          <div><label className="block text-sm text-gray-600 mb-1">الصلاحية</label>
+            <select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}>
+              <option value="member">مفتش </option>
+              <option value="admin">مسؤول </option>
+              {currentUser.role === 'developer' && (<><option value="father">مشرف عام </option><option value="developer">مبرمج </option></>)}
+            </select>
+          </div>
+          <div className="pt-2 flex gap-2">
+            <button type="submit" className="flex-1 bg-green-600 text-white py-2.5 rounded-lg font-bold hover:bg-green-700 shadow-md">حفظ التعديلات</button>
+            <button type="button" onClick={onClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-2.5 rounded-lg font-bold">إلغاء</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
