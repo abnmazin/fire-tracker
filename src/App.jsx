@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   ShieldAlert, ShieldCheck, AlertTriangle, LogOut, Plus, FileText, 
   Settings, LayoutDashboard, FireExtinguisher, Search, Users,
@@ -119,6 +119,9 @@ const initialExtinguishers = [
 
 export default function App() {
   const [currentUser, setCurrentUser] = useLocalStorage('fireTracker_user', null);
+  const currentUserRef = useRef(currentUser);
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+
   const [currentView, setCurrentView] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [fbUser, setFbUser] = useState(null);
@@ -151,8 +154,15 @@ export default function App() {
     }, console.error);
 
     const unsubUsers = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
-      if (snap.empty) { initialUsers.forEach(u => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(u.id)), u)); } 
-      else { setUsers(snap.docs.map(d => d.data())); }
+      if (snap.empty) { initialUsers.forEach(u => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(u.id)), u)); }
+      else {
+        const updatedUsers = snap.docs.map(d => d.data());
+        setUsers(updatedUsers);
+        if (currentUserRef.current) {
+          const stillExists = updatedUsers.some(u => String(u.id) === String(currentUserRef.current.id));
+          if (!stillExists) setCurrentUser(null);
+        }
+      }
     }, console.error);
 
     const unsubLogs = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'auditLogs'), (snap) => {
@@ -269,7 +279,7 @@ export default function App() {
               <LogOut className="w-5 h-5 ml-2" /> تسجيل الخروج
             </button>
             <div className="text-center border-t border-red-700/50 pt-4 w-full">
-              <p className="text-[11px] text-red-200 font-medium">© 2026 مسجد الموسوي الكبير.<br/>جميع الحقوق محفوظة.</p>
+              <p className="text-[11px] text-red-200 font-medium">© 2026<br/>جميع الحقوق محفوظة.</p>
               <p className="text-[10px] text-red-300/80 mt-1 font-mono">Developed by <a href="https://abnmazin.engineer" target="_blank" rel="noreferrer" className="font-bold text-white opacity-100 hover:underline">abnmazin.engineer</a></p>
             </div>
           </div>
@@ -417,6 +427,96 @@ function Dashboard({ extinguishers, contacts, setContacts, user }) {
   );
 }
 
+function EditContactsModal({ contacts, onClose, onSave }) {
+  const [draftContacts, setDraftContacts] = useState(
+    (contacts || []).map((c, idx) => ({
+      id: c.id ?? Date.now() + idx,
+      name: c.name || '',
+      phone: c.phone || ''
+    }))
+  );
+
+  const updateContact = (id, key, value) => {
+    setDraftContacts(prev => prev.map(c => (c.id === id ? { ...c, [key]: value } : c)));
+  };
+
+  const addContact = () => {
+    setDraftContacts(prev => [...prev, { id: Date.now(), name: '', phone: '' }]);
+  };
+
+  const removeContact = (id) => {
+    setDraftContacts(prev => prev.filter(c => c.id !== id));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const cleaned = draftContacts
+      .map(c => ({ id: c.id, name: c.name.trim(), phone: c.phone.trim() }))
+      .filter(c => c.name && c.phone)
+      .map((c, idx) => ({ ...c, id: idx + 1 }));
+
+    onSave(cleaned);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden my-auto">
+        <div className="bg-blue-600 text-white p-4 flex justify-between items-center">
+          <h3 className="font-bold text-lg flex items-center"><Phone className="w-5 h-5 ml-2" /> تعديل أرقام الطوارئ</h3>
+          <button onClick={onClose} className="text-blue-100 hover:text-white p-1">&times;</button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+            {draftContacts.length === 0 && (
+              <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+                لا توجد أرقام حالياً. أضف رقماً جديداً.
+              </div>
+            )}
+
+            {draftContacts.map((contact) => (
+              <div key={contact.id} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 items-center bg-gray-50 border border-gray-200 rounded-lg p-3">
+                <input
+                  type="text"
+                  value={contact.name}
+                  onChange={(e) => updateContact(contact.id, 'name', e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="اسم الجهة"
+                />
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={contact.phone}
+                  onChange={(e) => updateContact(contact.id, 'phone', e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="07xxxxxxxxx"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeContact(contact.id)}
+                  className="bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 px-3 py-2.5 rounded-lg text-sm font-medium"
+                >
+                  حذف
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <button type="button" onClick={addContact} className="w-full bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 py-2.5 rounded-lg text-sm font-bold">
+            + إضافة رقم جديد
+          </button>
+
+          <div className="flex gap-2 pt-1">
+            <button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-bold shadow-md">حفظ التعديلات</button>
+            <button type="button" onClick={onClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-2.5 rounded-lg font-bold">إلغاء</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ title, count, icon: Icon, color }) {
   return (
     <div className="bg-white rounded-xl shadow p-3 md:p-6 border border-gray-100 flex items-center"><div className={`${color} p-2 md:p-4 rounded-lg text-white ml-2 md:ml-4 shadow-sm`}><Icon className="w-5 h-5 md:w-6 md:h-6" /></div><div><h4 className="text-gray-500 text-[10px] md:text-sm font-medium">{title}</h4><p className="text-lg md:text-2xl font-bold text-gray-800">{count}</p></div></div>
@@ -436,13 +536,21 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
 
   const canEdit = user.role === 'developer' || user.role === 'admin' || user.role === 'father';
 
-  const filtered = extinguishers.filter(e => {
-    const searchLower = searchTerm.toLowerCase();
-    return (e.number.toLowerCase().includes(searchLower) || e.location.includes(searchTerm) || (e.subLocation && e.subLocation.toLowerCase().includes(searchLower))) &&
-           (filterType === 'All' || e.type === filterType) &&
-           (filterLocation === 'All' || e.location === filterLocation);
-  });
+  const filtered = extinguishers
+    .filter(e => {
+      const searchLower = searchTerm.toLowerCase();
+      return (e.number.toLowerCase().includes(searchLower) || e.location.includes(searchTerm) || (e.subLocation && e.subLocation.toLowerCase().includes(searchLower))) &&
+             (filterType === 'All' || e.type === filterType) &&
+             (filterLocation === 'All' || e.location === filterLocation);
+    })
+    .sort((a, b) => {
+      const aHasNotes = Boolean(a.notes && String(a.notes).trim());
+      const bHasNotes = Boolean(b.notes && String(b.notes).trim());
 
+      if (aHasNotes !== bHasNotes) return aHasNotes ? -1 : 1;
+
+      return String(a.number).localeCompare(String(b.number), undefined, { numeric: true, sensitivity: 'base' });
+    });
   const handleAddExtinguisher = (newExt) => {
     const newId = extinguishers.length ? Math.max(...extinguishers.map(e=>Number(e.id))) + 1 : 1;
     const extWithDates = { ...newExt, id: newId, nextDate: calculateNextDate(newExt.lastDate), lastInspection: newExt.lastDate, status: calculateStatus(calculateNextDate(newExt.lastDate), newExt.lastDate) };
