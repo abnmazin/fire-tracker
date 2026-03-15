@@ -90,6 +90,21 @@ const calculateStatus = (nextDateStr, lastInspectionStr) => {
 };
 
 const resolveExtinguisherStatus = (ext, inspectionPolicies = []) => {
+  const signatures = ext.inspectionSignatures || [];
+  if (signatures.length > 0) {
+    const latestSignature = signatures.reduce((latest, current) => {
+      const latestTime = new Date(latest.at || latest.date || 0).getTime();
+      const currentTime = new Date(current.at || current.date || 0).getTime();
+      return currentTime > latestTime ? current : latest;
+    });
+
+    // If latest recorded field action reports a fault, extinguisher must stay in maintenance-needed state.
+    if (latestSignature.condition && latestSignature.condition !== 'سليمة') return 'تحتاج صيانة';
+  }
+
+  // Fallback for legacy rows that may carry explicit state without signatures.
+  if (ext.status === 'تحتاج صيانة') return 'تحتاج صيانة';
+
   const maintenanceStatus = calculateStatus(ext.nextDate, ext.lastInspection || ext.lastDate);
   if (maintenanceStatus !== 'صالحة') return maintenanceStatus;
 
@@ -160,7 +175,12 @@ export default function App() {
       else {
         setExtinguishers(snap.docs.map(d => {
           const data = d.data();
-          return { ...data, archived: Boolean(data.archived), status: calculateStatus(data.nextDate, data.lastInspection || data.lastDate) };
+          const recalculatedStatus = calculateStatus(data.nextDate, data.lastInspection || data.lastDate);
+          return {
+            ...data,
+            archived: Boolean(data.archived),
+            status: data.status === 'تحتاج صيانة' ? 'تحتاج صيانة' : recalculatedStatus
+          };
         }));
       }
     }, console.error);
@@ -325,7 +345,7 @@ export default function App() {
           {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={handleSaveContacts} user={currentUser} locations={locations} inspectionPolicies={inspectionPolicies} />}
           {currentView === 'list' && <ExtinguishersList extinguishers={extinguishers} setExtinguishers={setExtinguishers} user={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} locations={locations} contacts={contacts} inspectionPolicies={inspectionPolicies} />}
           {currentView === 'users' && <UsersList users={users} setUsers={setUsers} currentUser={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} />}
-          {currentView === 'performance' && <PerformanceReport auditLogs={auditLogs} userRole={currentUser.role} />}
+          {currentView === 'performance' && <PerformanceReport auditLogs={auditLogs} userRole={currentUser.role} db={db} fbUser={fbUser} appId={appId} setAuditLogs={setAuditLogs} />}
           {currentView === 'inspectionPolicy' && <InspectionPolicyCenter locations={locations} inspectionPolicies={inspectionPolicies} setInspectionPolicies={setInspectionPolicies} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
           {currentView === 'archive' && <ArchiveCenter extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
           {currentView === 'settings' && <DeveloperSettings locations={locations} setLocations={handleSaveLocations} contacts={contacts} auditLogs={auditLogs} setAuditLogs={setAuditLogs} extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
@@ -456,6 +476,89 @@ function StatCard({ title, count, icon: Icon, color }) {
   );
 } 
 
+function EditContactsModal({ contacts, onClose, onSave }) {
+  const [localContacts, setLocalContacts] = useState(
+    (contacts && contacts.length > 0 ? contacts : [{ id: Date.now(), name: '', phone: '' }]).map(c => ({ ...c }))
+  );
+
+  const updateContact = (id, key, value) => {
+    setLocalContacts(prev => prev.map(c => (c.id === id ? { ...c, [key]: value } : c)));
+  };
+
+  const addContact = () => {
+    setLocalContacts(prev => [...prev, { id: Date.now() + Math.floor(Math.random() * 1000), name: '', phone: '' }]);
+  };
+
+  const removeContact = (id) => {
+    setLocalContacts(prev => {
+      const next = prev.filter(c => c.id !== id);
+      return next.length > 0 ? next : [{ id: Date.now(), name: '', phone: '' }];
+    });
+  };
+
+  const handleSave = () => {
+    const normalized = localContacts
+      .map(c => ({ id: c.id, name: String(c.name || '').trim(), phone: String(c.phone || '').trim() }))
+      .filter(c => c.name && c.phone);
+
+    if (normalized.length === 0) {
+      alert('يرجى إدخال جهة اتصال واحدة على الأقل (اسم + رقم).');
+      return;
+    }
+
+    onSave(normalized);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden my-auto">
+        <div className="bg-blue-600 text-white p-4 flex items-center justify-between">
+          <h3 className="text-lg font-bold flex items-center"><Phone className="w-5 h-5 ml-2" /> تعديل أرقام الطوارئ</h3>
+          <button onClick={onClose} className="text-blue-100 hover:text-white text-xl leading-none">&times;</button>
+        </div>
+
+        <div className="p-4 md:p-6 space-y-3 max-h-[70vh] overflow-y-auto">
+          {localContacts.map((c) => (
+            <div key={c.id} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 bg-gray-50 border border-gray-200 rounded-lg p-3">
+              <input
+                type="text"
+                placeholder="اسم الجهة"
+                value={c.name}
+                onChange={(e) => updateContact(c.id, 'name', e.target.value)}
+                className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+              <input
+                type="text"
+                placeholder="رقم الهاتف"
+                value={c.phone}
+                onChange={(e) => updateContact(c.id, 'phone', e.target.value)}
+                dir="ltr"
+                className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+              <button
+                onClick={() => removeContact(c.id)}
+                className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-3 py-2 rounded-lg text-sm font-bold flex items-center justify-center"
+              >
+                <Trash2 className="w-4 h-4 ml-1" /> حذف
+              </button>
+            </div>
+          ))}
+
+          <button onClick={addContact} className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 py-2.5 rounded-lg font-bold">
+            + إضافة جهة اتصال
+          </button>
+        </div>
+
+        <div className="p-4 border-t border-gray-200 flex gap-2">
+          <button onClick={handleSave} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-bold">حفظ التعديلات</button>
+          <button onClick={onClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-2.5 rounded-lg font-bold">إلغاء</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, db, fbUser, appId, locations, inspectionPolicies }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('All');
@@ -527,14 +630,15 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
       return ext;
     });
     
+    // Optimistic local update so status changes appear immediately in UI.
+    setExtinguishers(newExts);
+
     if (db && fbUser) {
       const batch = writeBatch(db);
       newExts.filter(e => extIds.includes(e.id)).forEach(updatedExt => {
         batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(updatedExt.id)), updatedExt);
       });
       batch.commit().catch(()=>{});
-    } else {
-      setExtinguishers(newExts);
     }
 
     const actionName = isMaintenance ? 'صيانة شاملة' : 'فحص يومي';
@@ -703,7 +807,19 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
       {actionModalData && <ActionModal exts={actionModalData} onClose={() => setActionModalData(null)} onSubmit={handleActionSubmit} userRole={user.role} />}
       {editModalData && <EditExtinguisherModal ext={editModalData} onClose={() => setEditModalData(null)} onEdit={handleEdit} locations={locations} />}
       {transferModalData && <TransferModal exts={transferModalData} onClose={() => setTransferModalData(null)} onSubmit={handleTransfer} locations={locations} />}
-      {historyModalData && <ExtinguisherHistoryModal ext={historyModalData} onClose={() => setHistoryModalData(null)} />}
+      {historyModalData && (
+        <ExtinguisherHistoryModal
+          ext={historyModalData}
+          onClose={() => setHistoryModalData(null)}
+          userRole={user.role}
+          db={db}
+          fbUser={fbUser}
+          appId={appId}
+          setExtinguishers={setExtinguishers}
+          logAction={logAction}
+          onHistoryReset={(updatedExt) => setHistoryModalData(updatedExt)}
+        />
+      )}
       
       {/* نافذة التأكيد */}
       {confirmDialog && <CustomConfirmModal title={confirmDialog.title} message={confirmDialog.message} isDestructive={confirmDialog.isDestructive} onConfirm={confirmDialog.action} onClose={() => setConfirmDialog(null)} />}
@@ -711,8 +827,28 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
   );
 }
 
-function ExtinguisherHistoryModal({ ext, onClose }) {
-  const signatures = ext.inspectionSignatures || [];
+function ExtinguisherHistoryModal({ ext, onClose, userRole, db, fbUser, appId, setExtinguishers, logAction, onHistoryReset }) {
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [signatures, setSignatures] = useState(ext.inspectionSignatures || []);
+  const canResetHistory = userRole === 'developer';
+
+  useEffect(() => {
+    setSignatures(ext.inspectionSignatures || []);
+  }, [ext]);
+
+  const handleResetHistory = () => {
+    const updatedExt = { ...ext, inspectionSignatures: [] };
+    setSignatures([]);
+    setExtinguishers(prev => prev.map(e => e.id === ext.id ? updatedExt : e));
+    if (onHistoryReset) onHistoryReset(updatedExt);
+
+    if (db && fbUser) {
+      setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), updatedExt).catch(()=>{});
+    }
+
+    logAction('تصفير سجل الطفاية', `تم تصفير سجل الطفاية ${ext.number}`);
+    setConfirmDialog(null);
+  };
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
@@ -722,7 +858,17 @@ function ExtinguisherHistoryModal({ ext, onClose }) {
             <h3 className="text-lg font-bold text-gray-800 flex items-center"><History className="w-5 h-5 ml-2 text-indigo-600" />سجل الطفاية</h3>
             <p className="text-sm text-gray-500 mt-1" dir="ltr">{ext.number}</p>
           </div>
-          <button onClick={onClose} className="bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg px-3 py-2 text-sm font-bold transition-colors">إغلاق</button>
+          <div className="flex items-center gap-2">
+            {canResetHistory && (
+              <button
+                onClick={() => setConfirmDialog({ title: 'تصفير السجل', message: `سيتم حذف جميع سجلات الطفاية ${ext.number}. هل أنت متأكد؟`, action: handleResetHistory, isDestructive: true })}
+                className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg px-3 py-2 text-sm font-bold transition-colors flex items-center"
+              >
+                <Trash2 className="w-4 h-4 ml-1" /> تصفير السجل
+              </button>
+            )}
+            <button onClick={onClose} className="bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg px-3 py-2 text-sm font-bold transition-colors">إغلاق</button>
+          </div>
         </div>
 
         <div className="max-h-[85vh] overflow-y-auto p-5 bg-gray-50">
@@ -765,6 +911,16 @@ function ExtinguisherHistoryModal({ ext, onClose }) {
           )}
         </div>
       </div>
+
+      {confirmDialog && (
+        <CustomConfirmModal
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          isDestructive={confirmDialog.isDestructive}
+          onConfirm={confirmDialog.action}
+          onClose={() => setConfirmDialog(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1115,7 +1271,7 @@ function AuditLogsList({ logs, userRole }) {
   );
 }
 
-function PerformanceReport({ auditLogs, userRole }) {
+function PerformanceReport({ auditLogs, userRole, db, fbUser, appId, setAuditLogs }) {
   if (userRole === 'member') return <div className="p-8 text-center text-red-500">عذراً، ليس لديك صلاحية للوصول لهذه الصفحة.</div>;
 
   const [selectedDay, setSelectedDay] = useState('All');
@@ -1169,6 +1325,14 @@ function PerformanceReport({ auditLogs, userRole }) {
 
     return [...grouped.values()].sort((a, b) => b.totalActions - a.totalActions);
   }, [filteredLogs]);
+
+  const canDeleteLogs = userRole === 'developer';
+
+  const handleDeleteLog = (logId) => {
+    if (!canDeleteLogs) return;
+    if (db && fbUser) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(logId))).catch(()=>{});
+    else setAuditLogs(prev => prev.filter(log => log.id !== logId));
+  };
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-10">
@@ -1231,7 +1395,17 @@ function PerformanceReport({ auditLogs, userRole }) {
                           <span className={`w-fit px-3 py-1 rounded-full text-xs font-bold border ${String(log.action || '').includes('صيانة') ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : String(log.action || '').includes('فحص') ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>
                             {log.action}
                           </span>
-                          <span className="text-xs text-gray-400" dir="ltr">{log.date}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-400" dir="ltr">{log.date}</span>
+                            {canDeleteLogs && (
+                              <button
+                                onClick={() => handleDeleteLog(log.id)}
+                                className="text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 px-2 py-1 rounded text-xs font-bold flex items-center"
+                              >
+                                <Trash2 className="w-3 h-3 ml-1" /> حذف
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <div className="text-sm text-gray-700 leading-relaxed">{log.details}</div>
                       </div>
@@ -1454,6 +1628,8 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
   if (!(currentUser.role === 'developer' || currentUser.role === 'father')) return <div className="p-8 text-center text-red-500">عذراً، ليس لديك صلاحية.</div>;
 
   const archivedExts = useMemo(() => extinguishers.filter(e => e.archived), [extinguishers]);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const canManageAll = currentUser.role === 'developer';
 
   const restoreOneExt = (ext) => {
     if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, archived: false }).catch(()=>{});
@@ -1472,12 +1648,36 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
     logAction('استعادة مؤرشف', `تم استعادة ${archivedExts.length} طفاية مؤرشفة.`);
   };
 
+  const deleteOneArchivedExt = (ext) => {
+    if (currentUser.role !== 'developer') return;
+    if (db && fbUser) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))).catch(()=>{});
+    else setExtinguishers(prev => prev.filter(e => e.id !== ext.id));
+    logAction('حذف من الأرشيف', `حذف الطفاية ${ext.number} نهائياً من الأرشيف.`);
+  };
+
+  const deleteAllArchivedExts = () => {
+    if (!canManageAll || archivedExts.length === 0) return;
+    if (db && fbUser) {
+      const batch = writeBatch(db);
+      archivedExts.forEach(ext => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))));
+      batch.commit().catch(()=>{});
+    } else {
+      setExtinguishers(prev => prev.filter(e => !e.archived));
+    }
+    logAction('حذف من الأرشيف', `تم حذف ${archivedExts.length} طفاية نهائياً من الأرشيف.`);
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h2 className="text-xl font-bold text-gray-800 flex items-center"><Archive className="w-5 h-5 ml-2 text-gray-700"/> أرشيف الطفايات</h2>
-          <button onClick={restoreAllExts} className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-bold">استعادة الكل ({archivedExts.length})</button>
+          {canManageAll && (
+            <div className="flex items-center gap-2">
+              <button onClick={restoreAllExts} disabled={archivedExts.length === 0} className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">استعادة الكل ({archivedExts.length})</button>
+              <button onClick={() => setConfirmDialog({ title: 'حذف الكل', message: `سيتم حذف (${archivedExts.length}) طفاية مؤرشفة نهائياً. هل أنت متأكد؟`, action: deleteAllArchivedExts, isDestructive: true })} disabled={archivedExts.length === 0} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">حذف الكل</button>
+            </div>
+          )}
         </div>
         {archivedExts.length === 0 ? <div className="text-sm text-gray-500 bg-gray-50 border rounded-lg p-3">لا توجد طفايات مؤرشفة.</div> : (
           <div className="space-y-2">{archivedExts.map(ext => (
@@ -1486,11 +1686,28 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
                 <div className="font-bold text-gray-800" dir="ltr">{ext.number}</div>
                 <div className="text-xs text-gray-500">{ext.location} - {ext.type} {ext.size}</div>
               </div>
-              <button onClick={() => restoreOneExt(ext)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold">استعادة</button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => restoreOneExt(ext)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold">استعادة</button>
+                {currentUser.role === 'developer' && (
+                  <button onClick={() => setConfirmDialog({ title: 'حذف نهائي', message: `سيتم حذف ${ext.number} نهائياً من الأرشيف. هل أنت متأكد؟`, action: () => deleteOneArchivedExt(ext), isDestructive: true })} className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-3 py-1.5 rounded text-xs font-bold flex items-center">
+                    <Trash2 className="w-3 h-3 ml-1" /> حذف
+                  </button>
+                )}
+              </div>
             </div>
           ))}</div>
         )}
       </div>
+
+      {confirmDialog && (
+        <CustomConfirmModal
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          isDestructive={confirmDialog.isDestructive}
+          onConfirm={confirmDialog.action}
+          onClose={() => setConfirmDialog(null)}
+        />
+      )}
 
     </div>
   );
@@ -1504,7 +1721,6 @@ function DeveloperSettings({ locations, setLocations, contacts, auditLogs, setAu
 
   const archivedExtinguishers = useMemo(() => extinguishers.filter(e => e.archived), [extinguishers]);
   const archivedUsers = useMemo(() => users.filter(u => u.archived), [users]);
-  const archivedItemsCount = archivedExtinguishers.length + archivedUsers.length;
 
   const restoreOneUser = (u) => {
     if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(u.id)), { ...u, archived: false }).catch(()=>{});
@@ -1522,7 +1738,6 @@ function DeveloperSettings({ locations, setLocations, contacts, auditLogs, setAu
     else setUsers(prev => prev.map(u => u.archived ? { ...u, archived: false } : u));
     logAction('استعادة مؤرشف', `تم استعادة ${archivedUsers.length} مستخدم مؤرشف.`);
   };
-  const followUpLogsCount = useMemo(() => extinguishers.reduce((sum, ext) => sum + (ext.inspectionSignatures?.length || 0), 0), [extinguishers]);
 
   if (currentUser.role !== 'developer') return <div className="p-8 text-center text-red-500">خاص بالمطورين فقط.</div>;
 
@@ -1538,16 +1753,6 @@ function DeveloperSettings({ locations, setLocations, contacts, auditLogs, setAu
     else alert("يجب أن يبقى موقع واحد على الأقل.");
   };
 
-  const executeClearLogs = () => {
-    if (db && fbUser) {
-      const batch = writeBatch(db);
-      auditLogs.forEach(log => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(log.id))));
-      batch.commit().catch(()=>{});
-    }
-    else setAuditLogs([]);
-    logAction('تنظيف النظام', 'تم مسح سجل النشاطات بالكامل.');
-  };
-
   const executeWipeData = () => {
     if (db && fbUser) {
       const batch = writeBatch(db);
@@ -1558,29 +1763,15 @@ function DeveloperSettings({ locations, setLocations, contacts, auditLogs, setAu
     logAction('تهيئة النظام', 'تم مسح قاعدة بيانات الطفايات بالكامل.');
   };
 
-  const executeClearArchive = () => {
+  const executeClearPerformanceLogs = () => {
     if (db && fbUser) {
       const batch = writeBatch(db);
-      archivedExtinguishers.forEach(ext => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))));
-      archivedUsers.forEach(u => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(u.id))));
+      auditLogs.forEach(log => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(log.id))));
       batch.commit().catch(()=>{});
     } else {
-      setExtinguishers(prev => prev.filter(e => !e.archived));
-      setUsers(prev => prev.filter(u => !u.archived));
+      setAuditLogs([]);
     }
-    logAction('حذف الأرشيف', `تم حذف ${archivedExtinguishers.length} طفاية مؤرشفة و${archivedUsers.length} مستخدم مؤرشف نهائياً.`);
-  };
-
-  const executeClearFollowUpLogs = () => {
-    const cleanedExtinguishers = extinguishers.map(ext => ({ ...ext, inspectionSignatures: [] }));
-    if (db && fbUser) {
-      const batch = writeBatch(db);
-      cleanedExtinguishers.forEach(ext => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), ext));
-      batch.commit().catch(()=>{});
-    } else {
-      setExtinguishers(cleanedExtinguishers);
-    }
-    logAction('حذف سجل المتابعة', `تم حذف ${followUpLogsCount} سجل متابعة/توقيع نهائياً.`);
+    logAction('تصفير سجل الإنجاز', 'تم تصفير جميع سجلات الإنجاز لكل المستخدمين.');
   };
 
   const handleBulkAdd = () => {
@@ -1654,7 +1845,15 @@ function DeveloperSettings({ locations, setLocations, contacts, auditLogs, setAu
     <div className="space-y-6 max-w-3xl mx-auto pb-10">
       <h2 className="text-2xl font-bold text-gray-800 border-b pb-4 flex items-center"><Settings className="w-6 h-6 ml-2 text-red-600"/> إعدادات النظام الأساسية (للمطور)</h2>
 
-      <UsersList users={users} setUsers={setUsers} currentUser={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} />
+      <details className="bg-white rounded-xl shadow-sm border border-gray-200 p-4" open>
+        <summary className="cursor-pointer select-none text-lg font-bold text-gray-800 flex items-center gap-2">
+          <Users className="w-5 h-5 text-blue-700" />
+          قسم فريق العمل
+        </summary>
+        <div className="mt-4">
+          <UsersList users={users} setUsers={setUsers} currentUser={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} />
+        </div>
+      </details>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
@@ -1753,31 +1952,11 @@ function DeveloperSettings({ locations, setLocations, contacts, auditLogs, setAu
         <div className="flex flex-col gap-4">
           <div className="flex flex-col sm:flex-row items-center justify-between bg-red-50 p-4 rounded-lg border border-red-100">
             <div>
-              <p className="font-bold text-gray-800">مسح سجل النشاطات</p>
-              <p className="text-xs text-gray-600 mt-1">مسح جميع التغييرات السابقة ({auditLogs.length} سجل حالياً).</p>
+              <p className="font-bold text-gray-800">تصفير سجلات الإنجاز</p>
+              <p className="text-xs text-gray-600 mt-1">مسح كل سجلات متابعة الإنجاز لجميع المستخدمين ({auditLogs.length} سجل حالياً).</p>
             </div>
-            <button onClick={() => setConfirmDialog({ title: 'تفريغ السجل', message: 'هل أنت متأكد من مسح جميع سجلات النشاطات نهائياً؟', action: executeClearLogs, isDestructive: true })} disabled={auditLogs.length === 0} className="w-full sm:w-auto mt-3 sm:mt-0 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">
-              تفريغ السجل
-            </button>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center justify-between bg-red-50 p-4 rounded-lg border border-red-100">
-            <div>
-              <p className="font-bold text-gray-800">حذف الأرشيف نهائياً</p>
-              <p className="text-xs text-gray-600 mt-1">حذف كل العناصر المؤرشفة نهائياً ({archivedItemsCount} عنصر حالياً).</p>
-            </div>
-            <button onClick={() => setConfirmDialog({ title: 'حذف الأرشيف', message: 'سيتم حذف جميع العناصر المؤرشفة نهائياً. لا يمكن التراجع. هل تريد المتابعة؟', action: executeClearArchive, isDestructive: true })} disabled={archivedItemsCount === 0} className="w-full sm:w-auto mt-3 sm:mt-0 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">
-              حذف الأرشيف
-            </button>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center justify-between bg-red-50 p-4 rounded-lg border border-red-100">
-            <div>
-              <p className="font-bold text-gray-800">حذف سجل المتابعة</p>
-              <p className="text-xs text-gray-600 mt-1">حذف كل سجلات التوقيع والمتابعة من الطفايات ({followUpLogsCount} سجل حالياً).</p>
-            </div>
-            <button onClick={() => setConfirmDialog({ title: 'حذف سجل المتابعة', message: 'سيتم حذف جميع سجلات المتابعة/التوقيع نهائياً من النظام. هل أنت متأكد؟', action: executeClearFollowUpLogs, isDestructive: true })} disabled={followUpLogsCount === 0} className="w-full sm:w-auto mt-3 sm:mt-0 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">
-              حذف سجل المتابعة
+            <button onClick={() => setConfirmDialog({ title: 'تصفير سجلات الإنجاز', message: 'سيتم مسح جميع سجلات الإنجاز لكل المستخدمين نهائياً. هل تريد المتابعة؟', action: executeClearPerformanceLogs, isDestructive: true })} disabled={auditLogs.length === 0} className="w-full sm:w-auto mt-3 sm:mt-0 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold disabled:opacity-50">
+              تصفير السجلات
             </button>
           </div>
 
