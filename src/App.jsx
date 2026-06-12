@@ -675,18 +675,27 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
     setFilterSubLocation('All');
   }, [filterMainLocation]);
 
-const filtered = extWithStatus
+  // Filter by location only (for per-location section counts)
+  const locationFilteredExts = useMemo(() => {
+    return extWithStatus.filter(e => {
+      const matchesMainLoc = filterMainLocation === 'All' || e.location.startsWith(filterMainLocation + ' / ') || e.location === filterMainLocation;
+      const matchesSubLoc = filterSubLocation === 'All' || e.location.includes(' / ' + filterSubLocation) || e.location === (filterMainLocation + ' / ' + filterSubLocation);
+      return matchesMainLoc && matchesSubLoc;
+    });
+  }, [extWithStatus, filterMainLocation, filterSubLocation]);
+
+  // Filter by location + type + search (excludes status — used for section counts)
+  const sectionFilteredExts = locationFilteredExts
     .filter(e => {
       const searchLower = searchTerm.toLowerCase();
       const matchesSearch = !searchTerm ||
         e.number.toLowerCase().includes(searchLower) ||
         e.location.includes(searchTerm);
       const matchesType = filterType === 'All' || e.type === filterType;
-      const matchesMainLoc = filterMainLocation === 'All' || e.location.startsWith(filterMainLocation + ' / ') || e.location === filterMainLocation;
-      const matchesSubLoc = filterSubLocation === 'All' || e.location.includes(' / ' + filterSubLocation) || e.location === (filterMainLocation + ' / ' + filterSubLocation);
-      const matchesStatus = quickStatusFilter === 'All' || e.status === quickStatusFilter;
-      return matchesSearch && matchesType && matchesMainLoc && matchesSubLoc && matchesStatus;
-    })
+      return matchesSearch && matchesType;
+    });
+
+  const filtered = (quickStatusFilter === 'All' ? sectionFilteredExts : sectionFilteredExts.filter(e => e.status === quickStatusFilter))
     .sort((a, b) => {
       const aHasNotes = Boolean(a.notes && String(a.notes).trim());
       const bHasNotes = Boolean(b.notes && String(b.notes).trim());
@@ -797,11 +806,11 @@ const filtered = extWithStatus
   };
 
   const statusCounts = useMemo(() => ({
-    all: extWithStatus.length,
-    dueInspection: extWithStatus.filter(e => e.status === 'تحتاج فحص').length,
-    nearMaintenance: extWithStatus.filter(e => e.status === 'صيانة قريبة').length,
-    needMaintenance: extWithStatus.filter(e => e.status === 'تحتاج صيانة').length,
-  }), [extWithStatus]);
+    all: sectionFilteredExts.length,
+    dueInspection: sectionFilteredExts.filter(e => e.status === 'تحتاج فحص').length,
+    nearMaintenance: sectionFilteredExts.filter(e => e.status === 'صيانة قريبة').length,
+    needMaintenance: sectionFilteredExts.filter(e => e.status === 'تحتاج صيانة').length,
+  }), [sectionFilteredExts]);
 
   const transferrableCount = filtered.filter(e => selectedIds.includes(e.id) && !e.inCabinet).length;
 
