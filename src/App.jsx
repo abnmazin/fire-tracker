@@ -11,6 +11,10 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, enableIndexedDbPersistence, writeBatch } from 'firebase/firestore';
 
+import HierarchicalLocationPicker from './HierarchicalLocationPicker';
+import LocationTreeManager from './LocationTreeManager';
+import { migrateIfNeeded, getAllLeafPaths, getAllNodePaths, deserializeTree, serializeTree, flatToTree, addNode } from './locationUtils';
+
 let app, auth, db, appId;
 
 try {
@@ -51,7 +55,51 @@ function useLocalStorage(key, initialValue) {
   return [value, setValue];
 }
 
-const initialLocations = ['مسجد البصرة', 'موكب كربلاء', 'موكب النجف', 'موكب سامراء', 'المشاية'];
+// Initial location tree: hierarchical structure
+const initialLocationTree = [
+  {
+    id: 'loc-root-1',
+    name: 'البصرة',
+    children: [
+      {
+        id: 'loc-basra-mosque',
+        name: 'مسجد الموسوي',
+        children: [
+          { id: 'loc-basra-mosque-kitchen', name: 'المطبخ', children: [] },
+          { id: 'loc-basra-mosque-hall', name: 'القاعة الرئيسية', children: [] },
+          { id: 'loc-basra-mosque-roof', name: 'السطح', children: [] },
+        ]
+      },
+      { id: 'loc-basra-husseini', name: 'موكب كربلاء', children: [] },
+    ]
+  },
+  {
+    id: 'loc-root-2',
+    name: 'بغداد',
+    children: [
+      { id: 'loc-baghdad-mosque', name: 'جامع الإمام', children: [] },
+    ]
+  },
+  {
+    id: 'loc-root-3',
+    name: 'النجف',
+    children: [
+      { id: 'loc-najaf-mawkib', name: 'موكب النجف', children: [] },
+    ]
+  },
+  {
+    id: 'loc-root-4',
+    name: 'سامراء',
+    children: [
+      { id: 'loc-samarra-mawkib', name: 'موكب سامراء', children: [] },
+    ]
+  },
+  {
+    id: 'loc-root-5',
+    name: 'المشاية',
+    children: [],
+  },
+];
 
 const initialUsers = [
   { id: 1, name: 'المبرمج الأعلى', username: 'dev', password: '123', role: 'developer', archived: false },
@@ -108,7 +156,9 @@ const resolveExtinguisherStatus = (ext, inspectionPolicies = []) => {
   const maintenanceStatus = calculateStatus(ext.nextDate, ext.lastInspection || ext.lastDate);
   if (maintenanceStatus !== 'صالحة') return maintenanceStatus;
 
-  const policy = inspectionPolicies.find(p => p.location === ext.location);
+  // For inspection policy matching, use the top-level location name
+  const topLocation = ext.location ? ext.location.split(' / ')[0].trim() : '';
+  const policy = inspectionPolicies.find(p => p.location === topLocation);
   if (!policy || !policy.enabled) return 'صالحة';
 
   const intervalDays = Math.max(1, Number(policy.intervalDays) || 1);
@@ -133,9 +183,9 @@ const d1MonthAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 1
 const d8MonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 8, today.getDate())); 
 
 const initialExtinguishers = [
-  { id: 1, number: 'EXT-001', size: '6Kg', type: 'Powder', location: 'مسجد البصرة', subLocation: 'الطابق الأول', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), lastInspection: dToday, status: 'صالحة', notes: 'يوجد خدش بسيط', inCabinet: true, archived: false },
-  { id: 2, number: 'EXT-002', size: '12Kg', type: 'CO2', location: 'موكب كربلاء', subLocation: 'المطبخ الرئيسي', lastDate: d8MonthsAgo, nextDate: calculateNextDate(d8MonthsAgo), lastInspection: dToday, status: 'تحتاج صيانة', notes: 'منتهية الصلاحية', inCabinet: false, archived: false },
-  { id: 3, number: 'EXT-003', size: '6Kg', type: 'Foam', location: 'موكب النجف', subLocation: '', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), lastInspection: d1MonthAgo, status: 'تحتاج فحص', notes: 'لم تفحص اليوم', inCabinet: false, archived: false },
+  { id: 1, number: 'EXT-001', size: '6Kg', type: 'Powder', location: 'البصرة / مسجد الموسوي / المطبخ', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), lastInspection: dToday, status: 'صالحة', notes: 'يوجد خدش بسيط', inCabinet: true, archived: false },
+  { id: 2, number: 'EXT-002', size: '12Kg', type: 'CO2', location: 'البصرة / موكب كربلاء', lastDate: d8MonthsAgo, nextDate: calculateNextDate(d8MonthsAgo), lastInspection: dToday, status: 'تحتاج صيانة', notes: 'منتهية الصلاحية', inCabinet: false, archived: false },
+  { id: 3, number: 'EXT-003', size: '6Kg', type: 'Foam', location: 'النجف / موكب النجف', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), lastInspection: d1MonthAgo, status: 'تحتاج فحص', notes: 'لم تفحص اليوم', inCabinet: false, archived: false },
 ];
 
 export default function App() {
@@ -152,9 +202,18 @@ export default function App() {
   const [users, setUsers] = useState(initialUsers);
   const [auditLogs, setAuditLogs] = useState([]);
   const [contacts, setContacts] = useState(initialContacts);
-  const [locations, setLocations] = useState(initialLocations);
+  const [locationTree, setLocationTree] = useState(initialLocationTree);
   const [inspectionPolicies, setInspectionPolicies] = useState(initialInspectionPolicies);
   const [siteSettings, setSiteSettings] = useState({ name: 'مسجد الموسوي الكبير', logoUrl: 'https://preview.redd.it/%D9%85%D8%B3%D8%AC%D8%AF-%D8%A7%D9%84%D9%85%D9%88%D8%B3%D9%88%D9%8A-%D8%A7%D9%84%D9%83%D8%A8%D9%8A%D8%B1-%D9%81%D9%8A-%D8%A7%D9%84%D8%A8%D8%B5%D8%B1%D8%A9-v0-pbunk76bws571.jpg?width=640&crop=smart&auto=webp&s=dcef5b80db948e2e6789f5bfe95f09703af9e6d1' });
+
+  // Compute flat location paths list for use in filters, etc.
+  const locationPaths = useMemo(() => getAllLeafPaths(locationTree), [locationTree]);
+  const allLocationNodes = useMemo(() => getAllNodePaths(locationTree), [locationTree]);
+
+  // Helper to get all unique top-level location names (for policies and filters)
+  const topLevelLocations = useMemo(() => 
+    locationTree.map(n => n.name),
+  [locationTree]);
 
   useEffect(() => {
     if (!auth) return;
@@ -212,8 +271,13 @@ export default function App() {
     }, console.error);
 
     const unsubLocs = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), (snap) => {
-      if (snap.exists()) setLocations(snap.data().list || []);
-      else setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: initialLocations });
+      if (snap.exists()) {
+        const data = snap.data().list || [];
+        const { tree, wasConverted } = migrateIfNeeded(data);
+        setLocationTree(tree);
+      } else {
+        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: initialLocationTree });
+      }
     }, console.error);
 
     const unsubPolicies = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'inspectionPolicies'), (snap) => {
@@ -251,9 +315,15 @@ export default function App() {
     else setContacts(newContacts);
   };
 
-  const handleSaveLocations = (newLocations) => {
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: newLocations }).catch(()=>{});
-    else setLocations(newLocations);
+  const handleSaveLocations = (newTree) => {
+    setLocationTree(newTree);
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: newTree }).catch(()=>{});
+  };
+
+  const handleQuickAddLocation = (parentId, name) => {
+    if (!name || !name.trim()) return;
+    const newTree = addNode(locationTree, parentId, name.trim());
+    handleSaveLocations(newTree);
   };
 
   const handleSaveSiteSettings = (newSettings) => {
@@ -352,13 +422,13 @@ export default function App() {
         </header>
 
         <main className="flex-1 p-4 md:p-6 overflow-y-auto w-full max-w-full relative z-0 bg-gray-50">
-          {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={handleSaveContacts} user={currentUser} locations={locations} inspectionPolicies={inspectionPolicies} />}
-          {currentView === 'list' && <ExtinguishersList extinguishers={extinguishers} setExtinguishers={setExtinguishers} user={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} locations={locations} contacts={contacts} inspectionPolicies={inspectionPolicies} />}
+          {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={handleSaveContacts} user={currentUser} locationTree={locationTree} locationPaths={locationPaths} inspectionPolicies={inspectionPolicies} />}
+          {currentView === 'list' && <ExtinguishersList extinguishers={extinguishers} setExtinguishers={setExtinguishers} user={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} locationTree={locationTree} locationPaths={locationPaths} contacts={contacts} inspectionPolicies={inspectionPolicies} onQuickAddLocation={handleQuickAddLocation} />}
           {currentView === 'users' && <UsersList users={users} setUsers={setUsers} currentUser={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} />}
           {currentView === 'performance' && <PerformanceReport auditLogs={auditLogs} userRole={currentUser.role} db={db} fbUser={fbUser} appId={appId} setAuditLogs={setAuditLogs} />}
-          {currentView === 'inspectionPolicy' && <InspectionPolicyCenter locations={locations} inspectionPolicies={inspectionPolicies} setInspectionPolicies={setInspectionPolicies} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
+          {currentView === 'inspectionPolicy' && <InspectionPolicyCenter topLevelLocations={topLevelLocations} inspectionPolicies={inspectionPolicies} setInspectionPolicies={setInspectionPolicies} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
           {currentView === 'archive' && <ArchiveCenter extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
-          {currentView === 'settings' && <DeveloperSettings locations={locations} setLocations={handleSaveLocations} contacts={contacts} auditLogs={auditLogs} setAuditLogs={setAuditLogs} extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} siteSettings={siteSettings} setSiteSettings={handleSaveSiteSettings} />}
+          {currentView === 'settings' && <DeveloperSettings locationTree={locationTree} setLocationTree={handleSaveLocations} contacts={contacts} auditLogs={auditLogs} setAuditLogs={setAuditLogs} extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} siteSettings={siteSettings} setSiteSettings={handleSaveSiteSettings} topLevelLocations={topLevelLocations} />}
         </main>
       </div>
     </div>
@@ -409,7 +479,7 @@ function LoginScreen({ onLogin, users, siteSettings }) {
   );
 }
 
-function Dashboard({ extinguishers, contacts, setContacts, user, inspectionPolicies }) {
+function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, locationPaths, inspectionPolicies }) {
   const [showContactsModal, setShowContactsModal] = useState(false);
   const extWithStatus = useMemo(() => extinguishers.map(e => ({ ...e, status: resolveExtinguisherStatus(e, inspectionPolicies) })), [extinguishers, inspectionPolicies]);
   const stats = useMemo(() => ({
@@ -438,7 +508,7 @@ function Dashboard({ extinguishers, contacts, setContacts, user, inspectionPolic
               {extWithStatus.filter(e => e.status !== 'صالحة').map(ext => (
                 <tr key={ext.id} className="border-b hover:bg-gray-50">
                   <td className="p-3 font-medium text-sm">{ext.number}</td>
-                  <td className="p-3 text-gray-600 text-sm">{ext.location}{ext.subLocation && <span className="text-xs text-gray-400 mr-2">({ext.subLocation})</span>}</td>
+                  <td className="p-3 text-gray-600 text-sm">{ext.location}</td>
                   <td className="p-3"><span className={`px-2 py-1 rounded-full text-[10px] md:text-xs font-bold whitespace-nowrap ${ext.status.includes('صيانة') ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{ext.status}</span></td>
                 </tr>
               ))}
@@ -449,7 +519,7 @@ function Dashboard({ extinguishers, contacts, setContacts, user, inspectionPolic
         <div className="md:hidden flex flex-col gap-3">
           {extWithStatus.filter(e => e.status !== 'صالحة').map(ext => (
             <div key={ext.id} className="bg-gray-50 border border-gray-100 rounded-lg p-3 flex justify-between items-center">
-              <div><div className="font-bold text-gray-800 text-sm">{ext.number}</div><div className="text-xs text-gray-500 mt-1">{ext.location}{ext.subLocation && <span className="block text-gray-400 text-[10px]">{ext.subLocation}</span>}</div></div>
+              <div><div className="font-bold text-gray-800 text-sm">{ext.number}</div><div className="text-xs text-gray-500 mt-1">{ext.location}</div></div>
               <span className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${ext.status.includes('صيانة') ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{ext.status}</span>
             </div>
           ))}
@@ -569,10 +639,11 @@ function EditContactsModal({ contacts, onClose, onSave }) {
   );
 }
 
-function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, db, fbUser, appId, locations, inspectionPolicies }) {
+function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, db, fbUser, appId, locationTree, locationPaths, inspectionPolicies, onQuickAddLocation }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('All');
-  const [filterLocation, setFilterLocation] = useState('All');
+  const [filterMainLocation, setFilterMainLocation] = useState('All');
+  const [filterSubLocation, setFilterSubLocation] = useState('All');
   const [quickStatusFilter, setQuickStatusFilter] = useState('All');
   const [showAddModal, setShowAddModal] = useState(false);
   const [actionModalData, setActionModalData] = useState(null); 
@@ -588,13 +659,33 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
   const activeExtinguishers = useMemo(() => extinguishers.filter(e => !e.archived), [extinguishers]);
   const extWithStatus = useMemo(() => activeExtinguishers.map(e => ({ ...e, status: resolveExtinguisherStatus(e, inspectionPolicies) })), [activeExtinguishers, inspectionPolicies]);
 
-  const filtered = extWithStatus
+  // Get top-level location names from the tree
+  const mainLocationNames = useMemo(() => locationTree.map(n => n.name), [locationTree]);
+
+  // Get sub-location names (children of the selected main location)
+  const subLocationOptions = useMemo(() => {
+    if (filterMainLocation === 'All') return [];
+    const mainNode = locationTree.find(n => n.name === filterMainLocation);
+    if (!mainNode || !mainNode.children) return [];
+    return mainNode.children.map(c => c.name);
+  }, [locationTree, filterMainLocation]);
+
+  // Reset sub-location when main location changes
+  useEffect(() => {
+    setFilterSubLocation('All');
+  }, [filterMainLocation]);
+
+const filtered = extWithStatus
     .filter(e => {
       const searchLower = searchTerm.toLowerCase();
-      return (e.number.toLowerCase().includes(searchLower) || e.location.includes(searchTerm) || (e.subLocation && e.subLocation.toLowerCase().includes(searchLower))) &&
-             (filterType === 'All' || e.type === filterType) &&
-             (filterLocation === 'All' || e.location === filterLocation) &&
-             (quickStatusFilter === 'All' || e.status === quickStatusFilter);
+      const matchesSearch = !searchTerm ||
+        e.number.toLowerCase().includes(searchLower) ||
+        e.location.includes(searchTerm);
+      const matchesType = filterType === 'All' || e.type === filterType;
+      const matchesMainLoc = filterMainLocation === 'All' || e.location.startsWith(filterMainLocation + ' / ') || e.location === filterMainLocation;
+      const matchesSubLoc = filterSubLocation === 'All' || e.location.includes(' / ' + filterSubLocation) || e.location === (filterMainLocation + ' / ' + filterSubLocation);
+      const matchesStatus = quickStatusFilter === 'All' || e.status === quickStatusFilter;
+      return matchesSearch && matchesType && matchesMainLoc && matchesSubLoc && matchesStatus;
     })
     .sort((a, b) => {
       const aHasNotes = Boolean(a.notes && String(a.notes).trim());
@@ -717,12 +808,13 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
   return (
     <div className="space-y-4 pb-24">
       {/* شريط الأدوات والفلاتر */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative z-20">
+      <div className="flex flex-col gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative z-20">
         <h2 className="text-xl font-bold text-gray-800">دليل الطفايات</h2>
-        <div className="flex flex-col gap-3 w-full lg:w-auto">
+        <div className="flex flex-col gap-3 w-full">
           <div className="flex flex-row gap-2 w-full sm:w-auto">
             <div className="relative flex-1 sm:w-36"><Filter className="w-4 h-4 absolute right-3 top-3 text-gray-400" /><select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="w-full pl-2 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-xs sm:text-sm text-gray-600 appearance-none bg-gray-50"><option value="All">كل الأنواع</option><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option><option value="Ceiling">سقفية</option></select></div>
-            <div className="relative flex-1 sm:w-36"><MapPin className="w-4 h-4 absolute right-3 top-3 text-gray-400" /><select value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)} className="w-full pl-2 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-xs sm:text-sm text-gray-600 appearance-none bg-gray-50"><option value="All">الموقع (الكل)</option>{locations.map(loc => (<option key={loc} value={loc}>{loc}</option>))}</select></div>
+            <div className="relative flex-1 sm:w-44"><MapPin className="w-4 h-4 absolute right-3 top-3 text-gray-400" /><select value={filterMainLocation} onChange={(e) => setFilterMainLocation(e.target.value)} className="w-full pl-2 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-xs sm:text-sm text-gray-600 appearance-none bg-gray-50"><option value="All">الموقع الرئيسي (الكل)</option>{mainLocationNames.map(loc => (<option key={loc} value={loc}>{loc}</option>))}</select></div>
+            <div className="relative flex-1 sm:w-44"><MapPin className="w-4 h-4 absolute right-3 top-3 text-gray-400" /><select value={filterSubLocation} onChange={(e) => setFilterSubLocation(e.target.value)} className="w-full pl-2 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-xs sm:text-sm text-gray-600 appearance-none bg-gray-50"><option value="All">الموقع الفرعي (الكل)</option>{subLocationOptions.map(loc => (<option key={loc} value={loc}>{loc}</option>))}</select></div>
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:items-center">
             <div className="relative w-full sm:w-48 lg:w-56"><Search className="w-5 h-5 absolute right-3 top-2.5 text-gray-400" /><input type="text" placeholder="بحث..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-3 pr-10 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" /></div>
@@ -774,7 +866,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
               <tr key={ext.id} className={`hover:bg-gray-50 transition-colors ${selectedIds.includes(ext.id) ? 'bg-red-50' : ''}`}>
                 <td className="p-3 text-center"><input type="checkbox" className="w-4 h-4 text-red-600 rounded cursor-pointer" checked={selectedIds.includes(ext.id)} onChange={(e) => setSelectedIds(e.target.checked ? [...selectedIds, ext.id] : selectedIds.filter(id => id !== ext.id))} /></td>
                 <td className="p-3 font-bold text-gray-800"><div className="flex items-center gap-2" dir="ltr">{ext.number}{ext.inCabinet && <span title="في كابينة" className="bg-gray-200 text-gray-500 p-1 rounded-md ml-2"><Archive className="w-3 h-3" /></span>}</div></td>
-                <td className="p-3"><span className="bg-gray-200 px-2 py-1 rounded text-gray-700 text-xs">{ext.type}</span> {ext.size}</td><td className="p-3"><div className="text-gray-800">{ext.location}</div>{ext.subLocation && <div className="text-xs text-gray-500">{ext.subLocation}</div>}</td>
+                <td className="p-3"><span className="bg-gray-200 px-2 py-1 rounded text-gray-700 text-xs">{ext.type}</span> {ext.size}</td><td className="p-3"><div className="text-gray-800 text-sm">{ext.location}</div></td>
                 <td className="p-3 text-gray-600 font-medium whitespace-nowrap">{ext.lastInspection || ext.lastDate}</td>
                 <td className="p-3 text-gray-500 whitespace-nowrap">{ext.nextDate}</td>
                 <td className="p-3"><span className={`px-2 py-1 rounded-full text-[11px] font-bold flex items-center w-max ${getStatusColor(ext.status)} ${ext.status === 'تحتاج فحص' ? 'animate-pulse' : ''}`}>{ext.status === 'صالحة' ? <CheckCircle className="w-3 h-3 ml-1" /> : ext.status === 'تحتاج فحص' ? <AlertTriangle className="w-3 h-3 ml-1" /> : <XCircle className="w-3 h-3 ml-1" />}{ext.status}</span></td>
@@ -799,7 +891,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
               </div><span className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center ${getStatusColor(ext.status)} ${ext.status === 'تحتاج فحص' ? 'animate-pulse' : ''}`}>{ext.status === 'تحتاج فحص' && <AlertTriangle className="w-3 h-3 ml-1" />}{ext.status}</span>
             </div>
             <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">
-              <div><span className="text-gray-400 block text-[10px] mb-0.5">الموقع</span><span className="font-medium text-gray-700">{ext.location}</span>{ext.subLocation && <span className="text-gray-500 text-[10px] block mt-0.5 bg-gray-200/50 px-1 rounded w-max">{ext.subLocation}</span>}</div>
+              <div className="col-span-2"><span className="text-gray-400 block text-[10px] mb-0.5">الموقع</span><span className="font-medium text-gray-700">{ext.location}</span></div>
               <div><span className="text-gray-400 block text-[10px] mb-0.5">آخر فحص يومي</span><span className="font-bold text-gray-700">{ext.lastInspection || ext.lastDate}</span></div>
               <div className="col-span-2 pt-2 border-t border-gray-200/60"><span className="text-gray-400 block text-[10px] mb-0.5">موعد الصيانة الشاملة القادم</span><span className="font-bold text-gray-800">{ext.nextDate}</span></div>
             </div>
@@ -813,10 +905,10 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
       </div>
 
       {showCustomSelectModal && <CustomSelectModal onClose={() => setShowCustomSelectModal(false)} onApply={applyCustomSelection} />}
-      {showAddModal && <AddExtinguisherModal onClose={() => setShowAddModal(false)} onAdd={handleAddExtinguisher} locations={locations} />}
+      {showAddModal && <AddExtinguisherModal onClose={() => setShowAddModal(false)} onAdd={handleAddExtinguisher} locationTree={locationTree} onAddLocation={onQuickAddLocation} />}
       {actionModalData && <ActionModal exts={actionModalData} onClose={() => setActionModalData(null)} onSubmit={handleActionSubmit} userRole={user.role} />}
-      {editModalData && <EditExtinguisherModal ext={editModalData} onClose={() => setEditModalData(null)} onEdit={handleEdit} locations={locations} />}
-      {transferModalData && <TransferModal exts={transferModalData} onClose={() => setTransferModalData(null)} onSubmit={handleTransfer} locations={locations} />}
+      {editModalData && <EditExtinguisherModal ext={editModalData} onClose={() => setEditModalData(null)} onEdit={handleEdit} locationTree={locationTree} onAddLocation={onQuickAddLocation} />}
+      {transferModalData && <TransferModal exts={transferModalData} onClose={() => setTransferModalData(null)} onSubmit={handleTransfer} locationTree={locationTree} onAddLocation={onQuickAddLocation} />}
       {historyModalData && (
         <ExtinguisherHistoryModal
           ext={historyModalData}
@@ -997,7 +1089,7 @@ function ActionModal({ exts, onClose, onSubmit, userRole }) {
             <label className="block text-sm font-bold text-gray-700 mb-1">ملاحظات (اختياري)</label>
             <textarea className="w-full border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 h-24 text-sm outline-none bg-gray-50" value={remarks} onChange={e => setRemarks(e.target.value)} placeholder={isSingle ? "امسح النص لإلغاء الملاحظة السابقة..." : "ستطبق هذه الملاحظة على جميع الطفايات المحددة..."} />
           </div>
-          
+
           <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-blue-600 text-white py-2.5 rounded-lg font-bold hover:bg-blue-700 shadow-md">تأكيد وحفظ</button><button type="button" onClick={onClose} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-2.5 rounded-lg font-bold transition-colors">إلغاء</button></div>
         </form>
       </div>
@@ -1005,10 +1097,15 @@ function ActionModal({ exts, onClose, onSubmit, userRole }) {
   );
 }
 
-function AddExtinguisherModal({ onClose, onAdd, locations }) {
-  const [formData, setFormData] = useState({ numPart: '', size: '6Kg', type: 'Powder', location: locations[0] || '', subLocation: '', lastDate: new Date().toISOString().split('T')[0], notes: '', inCabinet: false });
+function AddExtinguisherModal({ onClose, onAdd, locationTree, onAddLocation }) {
+  const [formData, setFormData] = useState({ numPart: '', size: '6Kg', type: 'Powder', location: '', lastDate: new Date().toISOString().split('T')[0], notes: '', inCabinet: false });
+
   const handleSubmit = (e) => { 
     e.preventDefault(); 
+    if (!formData.location) {
+      alert('يرجى اختيار الموقع.');
+      return;
+    }
     const finalNumber = `EXT-${String(formData.numPart).padStart(3, '0')}`;
     onAdd({ ...formData, number: finalNumber }); 
   };
@@ -1029,8 +1126,16 @@ function AddExtinguisherModal({ onClose, onAdd, locations }) {
             <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option><option value="Ceiling">سقفية</option></select></div>
             <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><input required type="text" className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.size} onChange={e => setFormData({...formData, size: e.target.value})} /></div>
           </div>
-          <div><label className="block text-sm text-gray-600 mb-1">الموقع الرئيسي</label><select className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})}>{locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}</select></div>
-          <div><label className="block text-sm text-gray-600 mb-1">الموقع الفرعي (اختياري)</label><input type="text" className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.subLocation} onChange={e => setFormData({...formData, subLocation: e.target.value})} /></div>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">الموقع</label>
+              <HierarchicalLocationPicker
+              tree={locationTree}
+              value={formData.location}
+              onChange={(path) => setFormData({...formData, location: path})}
+              placeholder="اختر الموقع..."
+              onAddLocation={onAddLocation}
+            />
+          </div>
           <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="inCabinet" className="w-4 h-4 text-red-600 rounded" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="inCabinet" className="text-sm font-bold text-gray-700 cursor-pointer select-none">مثبتة داخل كابينة</label></div>
           <div><label className="block text-sm text-gray-600 mb-1">تاريخ الإنشاء / الصيانة</label><input required type="date" className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
           <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-red-600 text-white py-2.5 rounded-lg font-bold hover:bg-red-700 shadow-md">حفظ</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-bold hover:bg-gray-300">إلغاء</button></div>
@@ -1040,7 +1145,7 @@ function AddExtinguisherModal({ onClose, onAdd, locations }) {
   );
 }
 
-function EditExtinguisherModal({ ext, onClose, onEdit, locations }) {
+function EditExtinguisherModal({ ext, onClose, onEdit, locationTree, onAddLocation }) {
   const [formData, setFormData] = useState({ ...ext });
   const handleSubmit = (e) => { e.preventDefault(); onEdit(formData); };
 
@@ -1054,8 +1159,16 @@ function EditExtinguisherModal({ ext, onClose, onEdit, locations }) {
             <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 bg-gray-50 outline-none" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option><option value="Ceiling">سقفية</option></select></div>
             <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 bg-gray-50 outline-none" value={formData.size} onChange={e => setFormData({...formData, size: e.target.value})} /></div>
           </div>
-          <div><label className="block text-sm text-gray-600 mb-1">الموقع الرئيسي</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 bg-gray-50 outline-none" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})}>{locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}</select></div>
-          <div><label className="block text-sm text-gray-600 mb-1">الموقع الفرعي (اختياري)</label><input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 bg-gray-50 outline-none" value={formData.subLocation || ''} onChange={e => setFormData({...formData, subLocation: e.target.value})} /></div>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">الموقع</label>
+            <HierarchicalLocationPicker
+              tree={locationTree}
+              value={formData.location || ''}
+              onChange={(path) => setFormData({...formData, location: path})}
+              placeholder="اختر الموقع..."
+              onAddLocation={onAddLocation}
+            />
+          </div>
           <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="editInCabinet" className="w-4 h-4 text-green-600 rounded focus:ring-green-500 cursor-pointer" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="editInCabinet" className="text-sm font-bold text-gray-700 cursor-pointer select-none">مثبتة داخل كابينة</label></div>
           <div><label className="block text-sm text-gray-600 mb-1">تاريخ آخر صيانة شاملة</label><input required type="date" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
           <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-green-600 text-white py-2.5 rounded-lg font-bold hover:bg-green-700 shadow-md">حفظ التعديلات</button><button type="button" onClick={onClose} className="flex-1 bg-gray-100 text-gray-800 py-2.5 rounded-lg font-bold hover:bg-gray-200">إلغاء</button></div>
@@ -1083,13 +1196,42 @@ function CustomConfirmModal({ title, message, isDestructive, onConfirm, onClose 
   );
 }
 
-function TransferModal({ exts, onClose, onSubmit, locations }) {
-  const [newLocation, setNewLocation] = useState(locations[0] || '');
+function TransferModal({ exts, onClose, onSubmit, locationTree, onAddLocation }) {
+  const [newLocation, setNewLocation] = useState('');
   const handleSubmit = (e) => { e.preventDefault(); if(newLocation.trim() === '') return; onSubmit(exts.map(e => e.id), newLocation); };
   const isSingle = exts.length === 1;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto"><div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto"><div className="bg-purple-600 text-white p-4"><h3 className="font-bold text-lg flex items-center"><ArrowRightLeft className="w-5 h-5 ml-2" /> {isSingle ? 'ترحيل الطفاية' : 'ترحيل جماعي'}</h3><p className="text-sm text-purple-100 opacity-90 mt-1">{isSingle ? `رقم: ${exts[0].number}` : `العدد: ${exts.length}`}</p></div><form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">{isSingle && (<div><label className="block text-sm text-gray-600 mb-1">الموقع الحالي</label><input type="text" disabled className="w-full border p-2 rounded bg-gray-100 text-gray-500" value={exts[0].location} /></div>)}<div><label className="block text-sm text-gray-600 mb-1">الموقع الجديد</label><select required className="w-full border p-2 rounded focus:ring-2 focus:ring-purple-500" value={newLocation} onChange={e => setNewLocation(e.target.value)}>{locations.map(loc => <option key={loc} value={loc} disabled={isSingle && exts[0].location === loc}>{loc}</option>)}</select></div><div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-purple-600 text-white py-2.5 rounded-lg font-medium flex justify-center items-center">تأكيد الترحيل</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium">إلغاء</button></div></form></div></div>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto">
+        <div className="bg-purple-600 text-white p-4">
+          <h3 className="font-bold text-lg flex items-center"><ArrowRightLeft className="w-5 h-5 ml-2" /> {isSingle ? 'ترحيل الطفاية' : 'ترحيل جماعي'}</h3>
+          <p className="text-sm text-purple-100 opacity-90 mt-1">{isSingle ? `رقم: ${exts[0].number}` : `العدد: ${exts.length}`}</p>
+        </div>
+        <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">
+          {isSingle && (
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">الموقع الحالي</label>
+              <input type="text" disabled className="w-full border p-2 rounded bg-gray-100 text-gray-500" value={exts[0].location} />
+            </div>
+          )}
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">الموقع الجديد</label>
+            <HierarchicalLocationPicker
+              tree={locationTree}
+              value={newLocation}
+              onChange={setNewLocation}
+              placeholder="اختر الموقع الجديد..."
+              onAddLocation={onAddLocation}
+            />
+          </div>
+          <div className="pt-2 flex gap-2">
+            <button type="submit" disabled={!newLocation} className="flex-1 bg-purple-600 text-white py-2.5 rounded-lg font-medium flex justify-center items-center disabled:opacity-50">تأكيد الترحيل</button>
+            <button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-medium">إلغاء</button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -1431,7 +1573,7 @@ function PerformanceReport({ auditLogs, userRole, db, fbUser, appId, setAuditLog
   );
 }
 
-function InspectionPolicyCenter({ locations, inspectionPolicies, setInspectionPolicies, db, fbUser, appId, logAction, currentUser }) {
+function InspectionPolicyCenter({ topLevelLocations, inspectionPolicies, setInspectionPolicies, db, fbUser, appId, logAction, currentUser }) {
   if (!(currentUser.role === 'developer' || currentUser.role === 'father')) return <div className="p-8 text-center text-red-500">عذراً، ليس لديك صلاحية.</div>;
 
   const defaultStartDate = formatDate(new Date());
@@ -1439,12 +1581,12 @@ function InspectionPolicyCenter({ locations, inspectionPolicies, setInspectionPo
   const [selectedLocation, setSelectedLocation] = useState('');
 
   useEffect(() => {
-    const normalized = locations.map((loc) => {
+    const normalized = topLevelLocations.map((loc) => {
       const existing = inspectionPolicies.find(p => p.location === loc);
       return existing || { location: loc, enabled: false, intervalDays: 1, startDate: defaultStartDate };
     });
     setPolicyDraft(normalized);
-  }, [locations, inspectionPolicies, defaultStartDate]);
+  }, [topLevelLocations, inspectionPolicies, defaultStartDate]);
 
   useEffect(() => {
     if (!policyDraft.length) {
@@ -1500,7 +1642,7 @@ function InspectionPolicyCenter({ locations, inspectionPolicies, setInspectionPo
         <h3 className="text-lg font-bold text-gray-800 mb-4">تحرير مركزي للسياسة</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">اختر القسم</label>
+            <label className="block text-xs text-gray-500 mb-1">اختر القسم (الموقع الرئيسي)</label>
             <select className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" value={selectedLocation} onChange={(e) => setSelectedLocation(e.target.value)}>
               {policyDraft.map(p => <option key={p.location} value={p.location}>{p.location}</option>)}
             </select>
@@ -1723,10 +1865,9 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
 }
 
 // 10. إعدادات المطور
-function DeveloperSettings({ locations, setLocations, contacts, auditLogs, setAuditLogs, extinguishers, setExtinguishers, users, setUsers, db, fbUser, appId, logAction, currentUser, siteSettings, setSiteSettings }) {
-  const [newLocation, setNewLocation] = useState('');
+function DeveloperSettings({ locationTree, setLocationTree, contacts, auditLogs, setAuditLogs, extinguishers, setExtinguishers, users, setUsers, db, fbUser, appId, logAction, currentUser, siteSettings, setSiteSettings, topLevelLocations }) {
   const [confirmDialog, setConfirmDialog] = useState(null); 
-  const [bulkData, setBulkData] = useState({ quantity: 10, type: 'Powder', size: '6Kg', location: locations[0] || '' });
+  const [bulkData, setBulkData] = useState({ quantity: 10, type: 'Powder', size: '6Kg', location: topLevelLocations[0] || '' });
   const [siteForm, setSiteForm] = useState({ name: siteSettings?.name || '', logoUrl: siteSettings?.logoUrl || '' });
   const [siteSaved, setSiteSaved] = useState(false);
 
@@ -1759,18 +1900,6 @@ function DeveloperSettings({ locations, setLocations, contacts, auditLogs, setAu
   };
 
   if (currentUser.role !== 'developer') return <div className="p-8 text-center text-red-500">خاص بالمطورين فقط.</div>;
-
-  const handleAddLocation = () => {
-    if (newLocation.trim() && !locations.includes(newLocation.trim())) {
-      setLocations([...locations, newLocation.trim()]);
-      setNewLocation('');
-    }
-  };
-
-  const handleRemoveLocation = (loc) => {
-    if (locations.length > 1) setLocations(locations.filter(l => l !== loc));
-    else alert("يجب أن يبقى موقع واحد على الأقل.");
-  };
 
   const executeWipeData = () => {
     if (db && fbUser) {
@@ -1820,7 +1949,6 @@ function DeveloperSettings({ locations, setLocations, contacts, auditLogs, setAu
         size: bulkData.size,
         type: bulkData.type,
         location: bulkData.location,
-        subLocation: '',
         lastDate: todayStr,
         nextDate: nextDateStr,
         lastInspection: todayStr,
@@ -1975,7 +2103,7 @@ function DeveloperSettings({ locations, setLocations, contacts, auditLogs, setAu
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">الموقع الأساسي</label>
             <select className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.location} onChange={e => setBulkData({...bulkData, location: e.target.value})}>
-              {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+              {topLevelLocations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
             </select>
           </div>
         </div>
@@ -1987,21 +2115,14 @@ function DeveloperSettings({ locations, setLocations, contacts, auditLogs, setAu
         </button>
       </div>
 
-      {/* 2. إدارة المواقع */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><MapPin className="w-5 h-5 ml-2 text-blue-600"/> إدارة المواقع الأساسية</h3>
-        <div className="flex gap-2 mb-4">
-          <input type="text" placeholder="اسم الموقع الجديد..." className="flex-1 border p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={newLocation} onChange={e => setNewLocation(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddLocation()} />
-          <button onClick={handleAddLocation} className="bg-blue-600 text-white px-5 rounded-lg font-medium hover:bg-blue-700 transition-colors">إضافة</button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {locations.map(loc => (
-            <div key={loc} className="bg-gray-100 border border-gray-200 text-gray-800 px-3 py-1.5 rounded-full flex items-center text-sm font-medium shadow-sm">
-              {loc}
-              <button onClick={() => handleRemoveLocation(loc)} className="ml-1 mr-2 text-gray-400 hover:text-red-500 transition-colors"><X className="w-4 h-4"/></button>
-            </div>
-          ))}
-        </div>
+      {/* 2. إدارة المواقع - شجرة هرمية */}
+      <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-5">
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><MapPin className="w-5 h-5 ml-2 text-blue-600"/> إدارة المواقع (شجرة هرمية)</h3>
+        <p className="text-sm text-gray-600 mb-4">يمكنك إضافة وتعديل وحذف المواقع والمواقع الفرعية بكل سهولة. قم بالتمرير فوق أي موقع لتظهر أزرار الإجراءات.</p>
+        <LocationTreeManager
+          tree={locationTree}
+          onChange={setLocationTree}
+        />
       </div>
 
       {/* 3. أدوات الخطر */}
