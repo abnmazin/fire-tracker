@@ -4,12 +4,12 @@ import {
   Settings, LayoutDashboard, FireExtinguisher, Search, Users,
   CheckCircle, XCircle, ClipboardList, ArrowRightLeft, Archive, Edit, Filter,
   UserPlus, Trash2, Phone, Menu, X, MapPin, DatabaseBackup, Loader2, Calendar,
-  CopyPlus, Target, Activity, History
+  CopyPlus, Target, Activity, History, WifiOff
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, enableIndexedDbPersistence, writeBatch } from 'firebase/firestore';
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, enableIndexedDbPersistence, writeBatch, waitForPendingWrites } from 'firebase/firestore';
 
 import HierarchicalLocationPicker from './HierarchicalLocationPicker';
 import LocationTreeManager from './LocationTreeManager';
@@ -196,6 +196,32 @@ export default function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [fbUser, setFbUser] = useState(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [syncStatus, setSyncStatus] = useState('idle'); // idle | syncing | synced
+  const prevOnline = useRef(isOnline);
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => { setSyncStatus('idle'); setIsOnline(false); };
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  // Detect when coming back online and wait for pending writes to sync
+  useEffect(() => {
+    if (isOnline && !prevOnline.current && db) {
+      setSyncStatus('syncing');
+      waitForPendingWrites(db).then(() => {
+        setSyncStatus('synced');
+        setTimeout(() => setSyncStatus('idle'), 3000);
+      });
+    }
+    prevOnline.current = isOnline;
+  }, [isOnline, db]);
 
   // استخدام useState للبيانات لتجنب تضارب التخزين المحلي مع فايربيس
   const [extinguishers, setExtinguishers] = useState([]);
@@ -411,6 +437,24 @@ export default function App() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 md:h-screen overflow-hidden">
+        {(syncStatus === 'syncing') && (
+          <div className="bg-blue-500 text-white text-center py-2 px-4 text-sm font-bold shrink-0 flex items-center justify-center gap-2">
+            <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+            جاري المزامنة مع الخادم...
+          </div>
+        )}
+        {syncStatus === 'synced' && (
+          <div className="bg-green-500 text-white text-center py-2 px-4 text-sm font-bold shrink-0 flex items-center justify-center gap-2">
+            <CheckCircle className="w-4 h-4 shrink-0" />
+            تمت المزامنة بنجاح ✓
+          </div>
+        )}
+        {!isOnline && syncStatus !== 'syncing' && (
+          <div className="bg-yellow-500 text-yellow-900 text-center py-2 px-4 text-sm font-bold shrink-0 flex items-center justify-center gap-2">
+            <WifiOff className="w-4 h-4 shrink-0" />
+            أنت غير متصل — البيانات تعمل محلياً وستتم المزامنة تلقائياً عند العودة
+          </div>
+        )}
         <header className="md:hidden bg-red-800 text-white p-4 flex justify-between items-center shadow-md shrink-0 relative z-10">
           <div className="flex items-center gap-3">
             <img src={siteSettings.logoUrl} alt="شعار" className="w-10 h-10 rounded-full border border-red-200 object-cover bg-white shadow-sm" />
