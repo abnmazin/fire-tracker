@@ -9,7 +9,7 @@ import {
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, enableIndexedDbPersistence, writeBatch, waitForPendingWrites } from 'firebase/firestore';
+import { initializeFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, waitForPendingWrites, CACHE_SIZE_UNLIMITED } from 'firebase/firestore';
 
 import HierarchicalLocationPicker from './HierarchicalLocationPicker';
 import LocationTreeManager from './LocationTreeManager';
@@ -32,8 +32,7 @@ try {
 
   if (app) {
     auth = getAuth(app);
-    db = getFirestore(app);
-    try { enableIndexedDbPersistence(db).catch(err => console.error("write err:", err)); } catch(e) {}
+    db = initializeFirestore(app, { cache: { kind: 'persistent', cacheSizeBytes: CACHE_SIZE_UNLIMITED } });
   }
 } catch (e) {
   console.error("خطأ في تهيئة فايربيس:", e);
