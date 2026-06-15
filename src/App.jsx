@@ -33,7 +33,7 @@ try {
   if (app) {
     auth = getAuth(app);
     db = getFirestore(app);
-    try { enableIndexedDbPersistence(db).catch(() => {}); } catch(e) {}
+    try { enableIndexedDbPersistence(db).catch(err => console.error("write err:", err)); } catch(e) {}
   }
 } catch (e) {
   console.error("خطأ في تهيئة فايربيس:", e);
@@ -253,37 +253,23 @@ export default function App() {
     if (!fbUser || !db) return;
 
     const unsubExt = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'extinguishers'), (snap) => {
-      if (snap.empty) { 
-        const batch = writeBatch(db);
-        initialExtinguishers.forEach(ext => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), ext));
-        batch.commit().catch(()=>{});
-      } 
-      else {
-        setExtinguishers(snap.docs.map(d => {
-          const data = d.data();
-          const recalculatedStatus = calculateStatus(data.nextDate, data.lastInspection || data.lastDate);
-          return {
-            ...data,
-            archived: Boolean(data.archived),
-            status: data.status === 'تحتاج صيانة' ? 'تحتاج صيانة' : recalculatedStatus
-          };
-        }));
-      }
+      setExtinguishers(snap.docs.map(d => {
+        const data = d.data();
+        const recalculatedStatus = calculateStatus(data.nextDate, data.lastInspection || data.lastDate);
+        return {
+          ...data,
+          archived: Boolean(data.archived),
+          status: data.status === 'تحتاج صيانة' ? 'تحتاج صيانة' : recalculatedStatus
+        };
+      }));
     }, console.error);
 
     const unsubUsers = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'users'), (snap) => {
-      if (snap.empty) { 
-        const batch = writeBatch(db);
-        initialUsers.forEach(u => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(u.id)), u));
-        batch.commit().catch(()=>{});
-      }
-      else {
-        const updatedUsers = snap.docs.map(d => ({ ...d.data(), archived: Boolean(d.data().archived) }));
-        setUsers(updatedUsers);
-        if (currentUserRef.current) {
-          const stillExists = updatedUsers.some(u => String(u.id) === String(currentUserRef.current.id) && !u.archived);
-          if (!stillExists) setCurrentUser(null);
-        }
+      const updatedUsers = snap.docs.map(d => ({ ...d.data(), archived: Boolean(d.data().archived) }));
+      setUsers(updatedUsers);
+      if (currentUserRef.current) {
+        const stillExists = updatedUsers.some(u => String(u.id) === String(currentUserRef.current.id) && !u.archived);
+        if (!stillExists) setCurrentUser(null);
       }
     }, console.error);
 
@@ -293,7 +279,6 @@ export default function App() {
 
     const unsubContacts = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'contacts'), (snap) => {
       if (snap.exists()) setContacts(snap.data().list || []);
-      else setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'contacts'), { list: initialContacts });
     }, console.error);
 
     const unsubLocs = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), (snap) => {
@@ -301,14 +286,11 @@ export default function App() {
         const data = snap.data().list || [];
         const { tree, wasConverted } = migrateIfNeeded(data);
         setLocationTree(tree);
-      } else {
-        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: initialLocationTree });
       }
     }, console.error);
 
     const unsubPolicies = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'inspectionPolicies'), (snap) => {
       if (snap.exists()) setInspectionPolicies(snap.data().list || []);
-      else setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'inspectionPolicies'), { list: initialInspectionPolicies });
     }, console.error);
 
     const unsubSiteSettings = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'siteSettings'), (snap) => {
@@ -332,18 +314,18 @@ export default function App() {
       details 
     };
 
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(newLog.id)), newLog).catch(()=>{});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(newLog.id)), newLog).catch(err => console.error("write err:", err));
     else setAuditLogs(prev => [newLog, ...prev]);
   };
 
   const handleSaveContacts = (newContacts) => {
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'contacts'), { list: newContacts }).catch(()=>{});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'contacts'), { list: newContacts }).catch(err => console.error("write err:", err));
     else setContacts(newContacts);
   };
 
   const handleSaveLocations = (newTree) => {
     setLocationTree(newTree);
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: newTree }).catch(()=>{});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: newTree }).catch(err => console.error("write err:", err));
   };
 
   const handleQuickAddLocation = (parentId, name) => {
@@ -354,7 +336,7 @@ export default function App() {
 
   const handleSaveSiteSettings = (newSettings) => {
     setSiteSettings(newSettings);
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'siteSettings'), newSettings).catch(()=>{});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'siteSettings'), newSettings).catch(err => console.error("write err:", err));
   };
 
   const navigateTo = (view) => {
@@ -750,7 +732,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
   const handleAddExtinguisher = (newExt) => {
     const newId = activeExtinguishers.length ? Math.max(...activeExtinguishers.map(e=>Number(e.id))) + 1 : 1;
     const extWithDates = { ...newExt, id: newId, nextDate: calculateNextDate(newExt.lastDate), lastInspection: newExt.lastDate, status: calculateStatus(calculateNextDate(newExt.lastDate), newExt.lastDate), archived: false };
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(newId)), extWithDates).catch(()=>{});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(newId)), extWithDates).catch(err => console.error("write err:", err));
     else setExtinguishers(prev => [...prev, extWithDates]);
     setShowAddModal(false);
     logAction('إضافة طفاية', `إضافة طفاية ${newExt.number} في ${newExt.location}`);
@@ -792,7 +774,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
       newExts.filter(e => extIds.includes(e.id)).forEach(updatedExt => {
         batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(updatedExt.id)), updatedExt);
       });
-      batch.commit().catch(()=>{});
+      batch.commit().catch(err => console.error("write err:", err));
     }
 
     const actionName = isMaintenance ? 'صيانة شاملة' : 'فحص يومي';
@@ -804,7 +786,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
 
   const handleEdit = (updatedExt) => {
     const extWithDates = { ...updatedExt, nextDate: calculateNextDate(updatedExt.lastDate), status: calculateStatus(calculateNextDate(updatedExt.lastDate), updatedExt.lastInspection) };
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(updatedExt.id)), extWithDates).catch(()=>{});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(updatedExt.id)), extWithDates).catch(err => console.error("write err:", err));
     else setExtinguishers(prev => prev.map(e => e.id === updatedExt.id ? extWithDates : e));
     logAction('تعديل طفاية', `تعديل بيانات الطفاية ${updatedExt.number}`);
     setEditModalData(null);
@@ -815,7 +797,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
     if (db && fbUser) {
       const batch = writeBatch(db);
       extsToTransfer.forEach(ext => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, location: newLocation }));
-      batch.commit().catch(()=>{});
+      batch.commit().catch(err => console.error("write err:", err));
     } else { setExtinguishers(prev => prev.map(e => extIds.includes(e.id) ? { ...e, location: newLocation } : e)); }
     logAction(extIds.length > 1 ? 'ترحيل جماعي' : 'ترحيل طفاية', `نقل (${extsToTransfer.map(e=>e.number).join('، ')}) إلى ${newLocation}`);
     setTransferModalData(null); setSelectedIds([]); 
@@ -827,7 +809,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
     if (db && fbUser) {
       const batch = writeBatch(db);
       extsToDelete.forEach(ext => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, archived: true }));
-      batch.commit().catch(()=>{});
+      batch.commit().catch(err => console.error("write err:", err));
     } else { setExtinguishers(prev => prev.map(e => selectedIds.includes(e.id) ? { ...e, archived: true } : e)); }
     logAction('أرشفة طفايات', `تمت أرشفة (${selectedIds.length}) طفاية: ${extsToDelete.map(e=>e.number).join('، ')}`);
     setSelectedIds([]);
@@ -998,7 +980,7 @@ function ExtinguisherHistoryModal({ ext, onClose, userRole, db, fbUser, appId, s
     if (onHistoryReset) onHistoryReset(updatedExt);
 
     if (db && fbUser) {
-      setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), updatedExt).catch(()=>{});
+      setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), updatedExt).catch(err => console.error("write err:", err));
     }
 
     logAction('تصفير سجل الطفاية', `تم تصفير سجل الطفاية ${ext.number}`);
@@ -1298,7 +1280,7 @@ function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId 
   const handleAddUser = (newUser) => {
     const newId = activeUsers.length ? Math.max(...activeUsers.map(u => Number(u.id))) + 1 : 1;
     const userObj = { ...newUser, id: newId, archived: false };
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(newId)), userObj).catch(()=>{});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(newId)), userObj).catch(err => console.error("write err:", err));
     else setUsers([...users, userObj]);
     setShowAddModal(false);
     logAction('إضافة مستخدم', `إضافة حساب "${newUser.name}"`);
@@ -1308,13 +1290,13 @@ function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId 
     if (id === currentUser.id) return; 
     const userToArchive = users.find(u => u.id === id);
     if (!userToArchive) return;
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(id)), { ...userToArchive, archived: true }).catch(()=>{});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(id)), { ...userToArchive, archived: true }).catch(err => console.error("write err:", err));
     else setUsers(users.map(u => u.id === id ? { ...u, archived: true } : u));
     logAction('أرشفة مستخدم', `أرشفة حساب "${name}"`);
   };
 
   const handleEditUser = (updatedUser) => {
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(updatedUser.id)), updatedUser).catch(()=>{});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(updatedUser.id)), updatedUser).catch(err => console.error("write err:", err));
     else setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
     logAction('تعديل مستخدم', `تعديل بيانات حساب "${updatedUser.name}"`);
     setEditModalUser(null);
@@ -1535,7 +1517,7 @@ function PerformanceReport({ auditLogs, userRole, db, fbUser, appId, setAuditLog
 
   const handleDeleteLog = (logId) => {
     if (!canDeleteLogs) return;
-    if (db && fbUser) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(logId))).catch(()=>{});
+    if (db && fbUser) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(logId))).catch(err => console.error("write err:", err));
     else setAuditLogs(prev => prev.filter(log => log.id !== logId));
   };
 
@@ -1669,7 +1651,7 @@ function InspectionPolicyCenter({ topLevelLocations, inspectionPolicies, setInsp
       startDate: p.startDate || defaultStartDate
     }));
 
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'inspectionPolicies'), { list: normalized }).catch(() => {});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'inspectionPolicies'), { list: normalized }).catch(err => console.error("write err:", err));
     else setInspectionPolicies(normalized);
 
     logAction('سياسات الفحص', 'تم تحديث سياسات الفحص حسب الأقسام.');
@@ -1836,7 +1818,7 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
   const canManageAll = currentUser.role === 'developer';
 
   const restoreOneExt = (ext) => {
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, archived: false }).catch(()=>{});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, archived: false }).catch(err => console.error("write err:", err));
     else setExtinguishers(prev => prev.map(e => e.id === ext.id ? { ...e, archived: false } : e));
     logAction('استعادة مؤرشف', `استعادة الطفاية ${ext.number}`);
   };
@@ -1846,7 +1828,7 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
     if (db && fbUser) {
       const batch = writeBatch(db);
       archivedExts.forEach(ext => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, archived: false }));
-      batch.commit().catch(()=>{});
+      batch.commit().catch(err => console.error("write err:", err));
     }
     else setExtinguishers(prev => prev.map(e => e.archived ? { ...e, archived: false } : e));
     logAction('استعادة مؤرشف', `تم استعادة ${archivedExts.length} طفاية مؤرشفة.`);
@@ -1854,7 +1836,7 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
 
   const deleteOneArchivedExt = (ext) => {
     if (currentUser.role !== 'developer') return;
-    if (db && fbUser) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))).catch(()=>{});
+    if (db && fbUser) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))).catch(err => console.error("write err:", err));
     else setExtinguishers(prev => prev.filter(e => e.id !== ext.id));
     logAction('حذف من الأرشيف', `حذف الطفاية ${ext.number} نهائياً من الأرشيف.`);
   };
@@ -1864,7 +1846,7 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
     if (db && fbUser) {
       const batch = writeBatch(db);
       archivedExts.forEach(ext => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))));
-      batch.commit().catch(()=>{});
+      batch.commit().catch(err => console.error("write err:", err));
     } else {
       setExtinguishers(prev => prev.filter(e => !e.archived));
     }
@@ -1936,7 +1918,7 @@ function DeveloperSettings({ locationTree, setLocationTree, contacts, auditLogs,
   const archivedUsers = useMemo(() => users.filter(u => u.archived), [users]);
 
   const restoreOneUser = (u) => {
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(u.id)), { ...u, archived: false }).catch(()=>{});
+    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(u.id)), { ...u, archived: false }).catch(err => console.error("write err:", err));
     else setUsers(prev => prev.map(x => x.id === u.id ? { ...x, archived: false } : x));
     logAction('استعادة مؤرشف', `استعادة المستخدم ${u.name}`);
   };
@@ -1946,7 +1928,7 @@ function DeveloperSettings({ locationTree, setLocationTree, contacts, auditLogs,
     if (db && fbUser) {
       const batch = writeBatch(db);
       archivedUsers.forEach(u => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(u.id)), { ...u, archived: false }));
-      batch.commit().catch(()=>{});
+      batch.commit().catch(err => console.error("write err:", err));
     }
     else setUsers(prev => prev.map(u => u.archived ? { ...u, archived: false } : u));
     logAction('استعادة مؤرشف', `تم استعادة ${archivedUsers.length} مستخدم مؤرشف.`);
@@ -1958,7 +1940,7 @@ function DeveloperSettings({ locationTree, setLocationTree, contacts, auditLogs,
     if (db && fbUser) {
       const batch = writeBatch(db);
       extinguishers.forEach(ext => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))));
-      batch.commit().catch(()=>{});
+      batch.commit().catch(err => console.error("write err:", err));
     }
     else { window.localStorage.setItem('fireTracker_extinguishers', '[]'); window.location.reload(); }
     logAction('تهيئة النظام', 'تم مسح قاعدة بيانات الطفايات بالكامل.');
@@ -1968,7 +1950,7 @@ function DeveloperSettings({ locationTree, setLocationTree, contacts, auditLogs,
     if (db && fbUser) {
       const batch = writeBatch(db);
       auditLogs.forEach(log => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(log.id))));
-      batch.commit().catch(()=>{});
+      batch.commit().catch(err => console.error("write err:", err));
     } else {
       setAuditLogs([]);
     }
@@ -2014,7 +1996,7 @@ function DeveloperSettings({ locationTree, setLocationTree, contacts, auditLogs,
     if (db && fbUser) {
        const batch = writeBatch(db);
        newExts.forEach(ext => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), ext));
-       batch.commit().catch(()=>{});
+       batch.commit().catch(err => console.error("write err:", err));
     } else {
        setExtinguishers(prev => [...prev, ...newExts]);
     }
