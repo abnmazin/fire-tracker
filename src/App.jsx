@@ -506,7 +506,7 @@ function LoginScreen({ onLogin, users, siteSettings }) {
 
 function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, locationPaths, inspectionPolicies }) {
   const [showContactsModal, setShowContactsModal] = useState(false);
-  const extWithStatus = useMemo(() => extinguishers.map(e => ({ ...e, status: resolveExtinguisherStatus(e, inspectionPolicies) })), [extinguishers, inspectionPolicies]);
+  const extWithStatus = useMemo(() => extinguishers.filter(e => !e.archived).map(e => ({ ...e, status: resolveExtinguisherStatus(e, inspectionPolicies) })), [extinguishers, inspectionPolicies]);
   const stats = useMemo(() => ({
     total: extWithStatus.length,
     valid: extWithStatus.filter(e => e.status === 'صالحة').length,
