@@ -581,6 +581,35 @@ function StatCard({ title, count, icon: Icon, color }) {
   );
 } 
 
+function LocationDropdown({ options, value, onChange, placeholder, onAddLocation, addLabel }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+  return (
+    <div className="relative flex-1 sm:w-44" ref={ref}>
+      <button type="button" onClick={() => setOpen(!open)} className="w-full pl-2 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-xs sm:text-sm text-gray-600 bg-gray-50 flex items-center justify-between gap-1 truncate">
+        <span className="truncate">{value === 'All' ? placeholder : value}</span>
+        <MapPin className="w-4 h-4 shrink-0 text-gray-400" />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+          <button type="button" onClick={() => { onChange('All'); setOpen(false); }} className={`w-full text-right px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors ${value === 'All' ? 'bg-red-50 text-red-700 font-bold' : 'text-gray-700'}`}>الكل ({placeholder})</button>
+          {options.length > 0 && <div className="border-t border-gray-100 mx-2" />}
+          {options.map(opt => (
+            <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false); }} className={`w-full text-right px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors ${value === opt ? 'bg-red-50 text-red-700 font-bold' : 'text-gray-700'}`}>{opt}</button>
+          ))}
+          <div className="border-t border-gray-100 mx-2 my-1" />
+          <button type="button" onClick={() => { setOpen(false); onAddLocation(); }} className="w-full text-right px-4 py-2.5 text-sm text-blue-600 hover:bg-blue-50 font-bold transition-colors flex items-center gap-2"><Plus className="w-4 h-4" /> {addLabel}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EditContactsModal({ contacts, onClose, onSave }) {
   const [localContacts, setLocalContacts] = useState(
     (contacts && contacts.length > 0 ? contacts : [{ id: Date.now(), name: '', phone: '' }]).map(c => ({ ...c }))
@@ -685,14 +714,14 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
   const extWithStatus = useMemo(() => activeExtinguishers.map(e => ({ ...e, status: resolveExtinguisherStatus(e, inspectionPolicies) })), [activeExtinguishers, inspectionPolicies]);
 
   // Get top-level location names from the tree
-  const mainLocationNames = useMemo(() => locationTree.map(n => n.name), [locationTree]);
+  const mainLocationNames = useMemo(() => locationTree.map(n => n.name).sort((a, b) => a.localeCompare(b, 'ar')), [locationTree]);
 
   // Get sub-location names (children of the selected main location)
   const subLocationOptions = useMemo(() => {
     if (filterMainLocation === 'All') return [];
     const mainNode = locationTree.find(n => n.name === filterMainLocation);
     if (!mainNode || !mainNode.children) return [];
-    return mainNode.children.map(c => c.name);
+    return mainNode.children.map(c => c.name).sort((a, b) => a.localeCompare(b, 'ar'));
   }, [locationTree, filterMainLocation]);
 
   // Reset sub-location when main location changes
@@ -847,8 +876,22 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
         <div className="flex flex-col gap-3 w-full">
           <div className="flex flex-row gap-2 w-full sm:w-auto">
             <div className="relative flex-1 sm:w-36"><Filter className="w-4 h-4 absolute right-3 top-3 text-gray-400" /><select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="w-full pl-2 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-xs sm:text-sm text-gray-600 appearance-none bg-gray-50"><option value="All">كل الأنواع</option><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option><option value="Ceiling">سقفية</option></select></div>
-            <div className="relative flex-1 sm:w-44"><MapPin className="w-4 h-4 absolute right-3 top-3 text-gray-400" /><select value={filterMainLocation} onChange={(e) => setFilterMainLocation(e.target.value)} className="w-full pl-2 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-xs sm:text-sm text-gray-600 appearance-none bg-gray-50"><option value="All">الموقع الرئيسي</option>{mainLocationNames.map(loc => (<option key={loc} value={loc}>{loc}</option>))}</select></div>
-            <div className="relative flex-1 sm:w-44"><MapPin className="w-4 h-4 absolute right-3 top-3 text-gray-400" /><select value={filterSubLocation} onChange={(e) => setFilterSubLocation(e.target.value)} className="w-full pl-2 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-xs sm:text-sm text-gray-600 appearance-none bg-gray-50"><option value="All">الموقع الفرعي </option>{subLocationOptions.map(loc => (<option key={loc} value={loc}>{loc}</option>))}</select></div>
+            <LocationDropdown
+              options={mainLocationNames}
+              value={filterMainLocation}
+              onChange={setFilterMainLocation}
+              placeholder="الموقع الرئيسي"
+              onAddLocation={() => { const name = prompt('اسم الموقع الرئيسي الجديد:'); if (name && name.trim()) onQuickAddLocation(null, name.trim()); }}
+              addLabel="إضافة موقع رئيسي"
+            />
+            <LocationDropdown
+              options={subLocationOptions}
+              value={filterSubLocation}
+              onChange={setFilterSubLocation}
+              placeholder="الموقع الفرعي"
+              onAddLocation={() => { const name = prompt('اسم الموقع الفرعي الجديد:'); if (name && name.trim() && filterMainLocation !== 'All') { const parentId = locationTree.find(n => n.name === filterMainLocation)?.id; if (parentId) onQuickAddLocation(parentId, name.trim()); } }}
+              addLabel="إضافة موقع فرعي"
+            />
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:items-center">
             <div className="relative w-full sm:w-48 lg:w-56"><Search className="w-5 h-5 absolute right-3 top-2.5 text-gray-400" /><input type="text" placeholder="بحث..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-3 pr-10 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" /></div>
