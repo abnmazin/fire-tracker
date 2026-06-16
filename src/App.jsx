@@ -310,7 +310,7 @@ export default function App() {
       dayStr: dayString, 
       userName: currentUser?.name || 'مجهول', 
       action, 
-      details 
+      details: details || '' 
     };
 
     if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(newLog.id)), newLog).catch(err => console.error("write err:", err));
@@ -695,9 +695,11 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
       if (!types[type].locations[mainLoc].sizes[e.size]) types[type].locations[mainLoc].sizes[e.size] = { count: 0, subLocs: {} };
       types[type].locations[mainLoc].sizes[e.size].count++;
       if (subLoc) {
-        if (!types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc]) types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc] = { count: 0, ids: [] };
-        types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc].count++;
-        types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc].ids.push(e.id);
+        if (!e.inCabinet) {
+          if (!types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc]) types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc] = { count: 0, ids: [] };
+          types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc].count++;
+          types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc].ids.push(e.id);
+        }
         if (e.inCabinet) {
           if (!types[type].locations[mainLoc].cabinet.subLocs[subLoc]) types[type].locations[mainLoc].cabinet.subLocs[subLoc] = { count: 0, ids: [] };
           types[type].locations[mainLoc].cabinet.subLocs[subLoc].count++;
