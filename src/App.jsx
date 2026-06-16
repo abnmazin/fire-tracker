@@ -646,6 +646,7 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
 
 function ReportModal({ exts, filterMainLocation, filterSubLocation, onClose }) {
   const [printMode, setPrintMode] = useState(false);
+  const [expanded, setExpanded] = useState(new Set());
   const typeLabel = (t) => t === 'Powder' ? 'بودرة' : t === 'CO2' ? 'CO2' : t === 'Foam' ? 'رغوة' : t === 'Water' ? 'ماء' : t === 'Ceiling' ? 'سقفية' : t;
   const locationLabel = filterMainLocation === 'All' ? 'جميع المواقع' : filterSubLocation === 'All' ? filterMainLocation : `${filterMainLocation} / ${filterSubLocation}`;
 
@@ -655,15 +656,25 @@ function ReportModal({ exts, filterMainLocation, filterSubLocation, onClose }) {
       const type = typeLabel(e.type);
       if (!types[type]) types[type] = { total: 0, locations: {} };
       types[type].total++;
-      const mainLoc = e.location.split(' / ')[0];
-      if (!types[type].locations[mainLoc]) types[type].locations[mainLoc] = { total: 0, sizes: {}, inCabinet: 0 };
+      const parts = e.location.split(' / ');
+      const mainLoc = parts[0];
+      const subLoc = parts.length > 1 ? e.location : '';
+      if (!types[type].locations[mainLoc]) types[type].locations[mainLoc] = { total: 0, sizes: {}, cabinet: { count: 0, subLocs: {} } };
       types[type].locations[mainLoc].total++;
-      if (!types[type].locations[mainLoc].sizes[e.size]) types[type].locations[mainLoc].sizes[e.size] = 0;
-      types[type].locations[mainLoc].sizes[e.size]++;
-      if (e.inCabinet) types[type].locations[mainLoc].inCabinet++;
+      if (!types[type].locations[mainLoc].sizes[e.size]) types[type].locations[mainLoc].sizes[e.size] = { count: 0, subLocs: {} };
+      types[type].locations[mainLoc].sizes[e.size].count++;
+      if (subLoc) {
+        types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc] = (types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc] || 0) + 1;
+        if (e.inCabinet) types[type].locations[mainLoc].cabinet.subLocs[subLoc] = (types[type].locations[mainLoc].cabinet.subLocs[subLoc] || 0) + 1;
+      }
+      if (e.inCabinet) types[type].locations[mainLoc].cabinet.count++;
     });
     return types;
   }, [exts]);
+
+  const toggle = (key) => {
+    setExpanded(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  };
 
   return (
     <div className={`fixed inset-0 z-50 flex items-start justify-center ${printMode ? 'p-0' : 'p-4 overflow-y-auto bg-black/50'}`}>
@@ -697,11 +708,39 @@ function ReportModal({ exts, filterMainLocation, filterSubLocation, onClose }) {
                     <div key={loc} className="px-4 md:px-6 py-3">
                       <p className="font-bold text-gray-700 text-sm mb-2">داخل {loc}</p>
                       <div className="space-y-1 mr-4">
-                        {Object.entries(lData.sizes).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(([size, count]) => (
-                          <p key={size} className="text-gray-600 text-sm">حجم {size} — عدد <strong>{count}</strong></p>
-                        ))}
-                        {lData.inCabinet > 0 && (
-                          <p className="text-yellow-700 text-sm">داخل الكبائن — عدد <strong>{lData.inCabinet}</strong></p>
+                        {Object.entries(lData.sizes).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(([size, sData]) => {
+                          const key = `${loc}|${size}`;
+                          const isOpen = expanded.has(key);
+                          return (
+                            <div key={size}>
+                              <button onClick={() => toggle(key)} className="text-gray-600 text-sm flex items-center gap-1.5 hover:text-blue-700 transition-colors cursor-pointer">
+                                <span className={`text-xs transition-transform ${isOpen ? 'rotate-90' : ''}`}>▶</span>
+                                حجم {size} — عدد <strong>{sData.count}</strong>
+                              </button>
+                              {isOpen && Object.keys(sData.subLocs).length > 0 && (
+                                <div className="mr-5 mt-1 space-y-0.5">
+                                  {Object.entries(sData.subLocs).sort((a, b) => b[1] - a[1]).map(([sub, c]) => (
+                                    <p key={sub} className="text-gray-500 text-xs">└ {sub} — {c}</p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {lData.cabinet.count > 0 && (
+                          <div>
+                            <button onClick={() => toggle(`${loc}|__cab__`)} className="text-yellow-700 text-sm flex items-center gap-1.5 hover:text-yellow-800 transition-colors cursor-pointer">
+                              <span className={`text-xs transition-transform ${expanded.has(`${loc}|__cab__`) ? 'rotate-90' : ''}`}>▶</span>
+                              داخل الكبائن — عدد <strong>{lData.cabinet.count}</strong>
+                            </button>
+                            {expanded.has(`${loc}|__cab__`) && Object.keys(lData.cabinet.subLocs).length > 0 && (
+                              <div className="mr-5 mt-1 space-y-0.5">
+                                {Object.entries(lData.cabinet.subLocs).sort((a, b) => b[1] - a[1]).map(([sub, c]) => (
+                                  <p key={sub} className="text-yellow-600 text-xs">└ {sub} — {c}</p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
