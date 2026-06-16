@@ -471,7 +471,7 @@ export default function App() {
         </header>
 
         <main className="flex-1 p-4 md:p-6 overflow-y-auto w-full max-w-full relative z-0 bg-gray-50">
-          {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={handleSaveContacts} user={currentUser} locationTree={locationTree} locationPaths={locationPaths} inspectionPolicies={inspectionPolicies} />}
+          {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={handleSaveContacts} user={currentUser} locationTree={locationTree} locationPaths={locationPaths} inspectionPolicies={inspectionPolicies} onQuickAddLocation={handleQuickAddLocation} />}
           {currentView === 'list' && <ExtinguishersList extinguishers={extinguishers} setExtinguishers={setExtinguishers} user={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} locationTree={locationTree} locationPaths={locationPaths} contacts={contacts} inspectionPolicies={inspectionPolicies} onQuickAddLocation={handleQuickAddLocation} />}
           {currentView === 'users' && <UsersList users={users} setUsers={setUsers} currentUser={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} />}
           {currentView === 'performance' && <PerformanceReport auditLogs={auditLogs} userRole={currentUser.role} db={db} fbUser={fbUser} appId={appId} setAuditLogs={setAuditLogs} />}
@@ -528,19 +528,72 @@ function LoginScreen({ onLogin, users, siteSettings }) {
   );
 }
 
-function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, locationPaths, inspectionPolicies }) {
+function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, locationPaths, inspectionPolicies, onQuickAddLocation }) {
   const [showContactsModal, setShowContactsModal] = useState(false);
+  const [filterMainLocation, setFilterMainLocation] = useState('All');
+  const [filterSubLocation, setFilterSubLocation] = useState('All');
+
   const extWithStatus = useMemo(() => extinguishers.filter(e => !e.archived).map(e => ({ ...e, status: resolveExtinguisherStatus(e, inspectionPolicies) })), [extinguishers, inspectionPolicies]);
+
+  const mainLocationNames = useMemo(() => locationTree.map(n => n.name).sort((a, b) => a.localeCompare(b, 'ar')), [locationTree]);
+  const subLocationOptions = useMemo(() => {
+    if (filterMainLocation === 'All') return [];
+    const mainNode = locationTree.find(n => n.name === filterMainLocation);
+    if (!mainNode || !mainNode.children) return [];
+    return mainNode.children.map(c => c.name).sort((a, b) => a.localeCompare(b, 'ar'));
+  }, [locationTree, filterMainLocation]);
+
+  useEffect(() => { setFilterSubLocation('All'); }, [filterMainLocation]);
+
+  const filteredExts = useMemo(() => extWithStatus.filter(e => {
+    const matchesMain = filterMainLocation === 'All' || e.location === filterMainLocation || e.location.startsWith(filterMainLocation + ' / ');
+    const matchesSub = filterSubLocation === 'All' || e.location === (filterMainLocation + ' / ' + filterSubLocation) || e.location.includes(' / ' + filterSubLocation);
+    return matchesMain && matchesSub;
+  }), [extWithStatus, filterMainLocation, filterSubLocation]);
+
   const stats = useMemo(() => ({
-    total: extWithStatus.length,
-    valid: extWithStatus.filter(e => e.status === 'صالحة').length,
-    warning: extWithStatus.filter(e => e.status === 'فحص قريب' || e.status === 'تحتاج فحص').length,
-    expired: extWithStatus.filter(e => e.status === 'تحتاج صيانة' || e.status === 'منتهية').length,
-  }), [extWithStatus]);
+    total: filteredExts.length,
+    valid: filteredExts.filter(e => e.status === 'صالحة').length,
+    warning: filteredExts.filter(e => e.status === 'فحص قريب' || e.status === 'تحتاج فحص').length,
+    expired: filteredExts.filter(e => e.status === 'تحتاج صيانة' || e.status === 'منتهية').length,
+  }), [filteredExts]);
+
+  const urgentExts = useMemo(() => filteredExts.filter(e => e.status !== 'صالحة'), [filteredExts]);
+  const statusSummary = useMemo(() => {
+    const map = {}; filteredExts.forEach(e => { map[e.status] = (map[e.status] || 0) + 1; }); return map;
+  }, [filteredExts]);
+  const typeSummary = useMemo(() => {
+    const map = {}; filteredExts.forEach(e => { map[e.type] = (map[e.type] || 0) + 1; }); return map;
+  }, [filteredExts]);
+  const sizeSummary = useMemo(() => {
+    const map = {}; filteredExts.forEach(e => { map[e.size] = (map[e.size] || 0) + 1; }); return map;
+  }, [filteredExts]);
+
+  const summaryEntries = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]);
 
   return (
     <div className="space-y-6">
       <h2 className="text-xl md:text-2xl font-bold text-gray-800">نظرة عامة</h2>
+
+      <div className="flex flex-wrap gap-2">
+        <LocationDropdown
+          options={mainLocationNames}
+          value={filterMainLocation}
+          onChange={setFilterMainLocation}
+          placeholder="الموقع الرئيسي"
+          onAddLocation={() => { const name = prompt('اسم الموقع الرئيسي الجديد:'); if (name && name.trim()) onQuickAddLocation(null, name.trim()); }}
+          addLabel="إضافة موقع رئيسي"
+        />
+        <LocationDropdown
+          options={subLocationOptions}
+          value={filterSubLocation}
+          onChange={setFilterSubLocation}
+          placeholder="الموقع الفرعي"
+          onAddLocation={() => { const name = prompt('اسم الموقع الفرعي الجديد:'); if (name && name.trim() && filterMainLocation !== 'All') { const parentId = locationTree.find(n => n.name === filterMainLocation)?.id; if (parentId) onQuickAddLocation(parentId, name.trim()); } }}
+          addLabel="إضافة موقع فرعي"
+        />
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <StatCard title="إجمالي الطفايات" count={stats.total} icon={FireExtinguisher} color="bg-blue-500" />
         <StatCard title="صالحة للعمل" count={stats.valid} icon={ShieldCheck} color="bg-green-500" />
@@ -548,25 +601,66 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
         <StatCard title="تحتاج صيانة" count={stats.expired} icon={ShieldAlert} color="bg-red-600" />
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-xl shadow p-4 md:p-5 border border-gray-100">
+          <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center"><ShieldCheck className="w-4 h-4 ml-1.5 text-green-600" /> حسب الحالة</h4>
+          <div className="space-y-1.5">
+            {summaryEntries(statusSummary).map(([k, v]) => (
+              <div key={k} className="flex justify-between text-sm py-1 border-b border-gray-50 last:border-0">
+                <span className="text-gray-600">{k}</span>
+                <span className="font-bold text-gray-800">{v}</span>
+              </div>
+            ))}
+            {Object.keys(statusSummary).length === 0 && <p className="text-gray-400 text-sm text-center py-2">لا توجد نتائج</p>}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow p-4 md:p-5 border border-gray-100">
+          <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center"><Target className="w-4 h-4 ml-1.5 text-blue-600" /> حسب النوع</h4>
+          <div className="space-y-1.5">
+            {summaryEntries(typeSummary).map(([k, v]) => (
+              <div key={k} className="flex justify-between text-sm py-1 border-b border-gray-50 last:border-0">
+                <span className="text-gray-600">{k === 'Powder' ? 'بودرة' : k === 'CO2' ? 'CO2' : k === 'Foam' ? 'رغوة' : k === 'Water' ? 'ماء' : k === 'Ceiling' ? 'سقفية' : k}</span>
+                <span className="font-bold text-gray-800">{v}</span>
+              </div>
+            ))}
+            {Object.keys(typeSummary).length === 0 && <p className="text-gray-400 text-sm text-center py-2">لا توجد نتائج</p>}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow p-4 md:p-5 border border-gray-100">
+          <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center"><Activity className="w-4 h-4 ml-1.5 text-purple-600" /> حسب الحجم</h4>
+          <div className="space-y-1.5">
+            {summaryEntries(sizeSummary).map(([k, v]) => (
+              <div key={k} className="flex justify-between text-sm py-1 border-b border-gray-50 last:border-0">
+                <span className="text-gray-600">{k}</span>
+                <span className="font-bold text-gray-800">{v}</span>
+              </div>
+            ))}
+            {Object.keys(sizeSummary).length === 0 && <p className="text-gray-400 text-sm text-center py-2">لا توجد نتائج</p>}
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow p-4 md:p-6 border border-gray-100">
-        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><AlertTriangle className="w-5 h-5 ml-2 text-red-500" />تتطلب انتباهاً عاجلاً</h3>
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><AlertTriangle className="w-5 h-5 ml-2 text-red-500" />تتطلب انتباهاً عاجلاً <span className="text-sm font-normal text-gray-500 mr-2">({urgentExts.length})</span></h3>
         <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-right min-w-[300px]">
             <thead><tr className="border-b text-gray-500 text-sm"><th className="p-3">الرقم</th><th className="p-3">الموقع</th><th className="p-3">الحالة</th></tr></thead>
             <tbody>
-              {extWithStatus.filter(e => e.status !== 'صالحة').map(ext => (
+              {urgentExts.map(ext => (
                 <tr key={ext.id} className="border-b hover:bg-gray-50">
                   <td className="p-3 font-medium text-sm">{ext.number}</td>
                   <td className="p-3 text-gray-600 text-sm">{ext.location}</td>
                   <td className="p-3"><span className={`px-2 py-1 rounded-full text-[10px] md:text-xs font-bold whitespace-nowrap ${ext.status.includes('صيانة') ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{ext.status}</span></td>
                 </tr>
               ))}
-              {extWithStatus.filter(e => e.status !== 'صالحة').length === 0 && <tr><td colSpan="3" className="p-4 text-center text-green-600 font-medium text-sm">جميع الطفايات بحالة جيدة حالياً!</td></tr>}
+              {urgentExts.length === 0 && <tr><td colSpan="3" className="p-4 text-center text-green-600 font-medium text-sm">جميع الطفايات بحالة جيدة حالياً!</td></tr>}
             </tbody>
           </table>
         </div>
         <div className="md:hidden flex flex-col gap-3">
-          {extWithStatus.filter(e => e.status !== 'صالحة').map(ext => (
+          {urgentExts.map(ext => (
             <div key={ext.id} className="bg-gray-50 border border-gray-100 rounded-lg p-3 flex justify-between items-center">
               <div><div className="font-bold text-gray-800 text-sm">{ext.number}</div><div className="text-xs text-gray-500 mt-1">{ext.location}</div></div>
               <span className={`px-2 py-1 rounded-full text-[10px] font-bold whitespace-nowrap ${ext.status.includes('صيانة') ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>{ext.status}</span>
@@ -575,7 +669,7 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow p-4 md:p-6 mt-6 border border-gray-100">
+      <div className="bg-white rounded-xl shadow p-4 md:p-6 border border-gray-100">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
           <h3 className="text-lg font-bold text-gray-800 flex items-center"><Phone className="w-5 h-5 ml-2 text-blue-500" />أرقام الطوارئ</h3>
           {(user.role === 'developer' || user.role === 'admin' || user.role === 'father') && <button onClick={() => setShowContactsModal(true)} className="text-sm bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1.5 rounded-lg flex items-center font-medium transition-colors w-full sm:w-auto justify-center"><Edit className="w-4 h-4 ml-1" /> تعديل الأرقام</button>}
