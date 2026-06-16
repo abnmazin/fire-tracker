@@ -558,18 +558,8 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
     expired: filteredExts.filter(e => e.status === 'تحتاج صيانة' || e.status === 'منتهية').length,
   }), [filteredExts]);
 
+  const [showReport, setShowReport] = useState(false);
   const urgentExts = useMemo(() => filteredExts.filter(e => e.status !== 'صالحة'), [filteredExts]);
-  const statusSummary = useMemo(() => {
-    const map = {}; filteredExts.forEach(e => { map[e.status] = (map[e.status] || 0) + 1; }); return map;
-  }, [filteredExts]);
-  const typeSummary = useMemo(() => {
-    const map = {}; filteredExts.forEach(e => { map[e.type] = (map[e.type] || 0) + 1; }); return map;
-  }, [filteredExts]);
-  const sizeSummary = useMemo(() => {
-    const map = {}; filteredExts.forEach(e => { map[e.size] = (map[e.size] || 0) + 1; }); return map;
-  }, [filteredExts]);
-
-  const summaryEntries = (obj) => Object.entries(obj).sort((a, b) => b[1] - a[1]);
 
   return (
     <div className="space-y-6">
@@ -601,47 +591,7 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
         <StatCard title="تحتاج صيانة" count={stats.expired} icon={ShieldAlert} color="bg-red-600" />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl shadow p-4 md:p-5 border border-gray-100">
-          <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center"><ShieldCheck className="w-4 h-4 ml-1.5 text-green-600" /> حسب الحالة</h4>
-          <div className="space-y-1.5">
-            {summaryEntries(statusSummary).map(([k, v]) => (
-              <div key={k} className="flex justify-between text-sm py-1 border-b border-gray-50 last:border-0">
-                <span className="text-gray-600">{k}</span>
-                <span className="font-bold text-gray-800">{v}</span>
-              </div>
-            ))}
-            {Object.keys(statusSummary).length === 0 && <p className="text-gray-400 text-sm text-center py-2">لا توجد نتائج</p>}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow p-4 md:p-5 border border-gray-100">
-          <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center"><Target className="w-4 h-4 ml-1.5 text-blue-600" /> حسب النوع</h4>
-          <div className="space-y-1.5">
-            {summaryEntries(typeSummary).map(([k, v]) => (
-              <div key={k} className="flex justify-between text-sm py-1 border-b border-gray-50 last:border-0">
-                <span className="text-gray-600">{k === 'Powder' ? 'بودرة' : k === 'CO2' ? 'CO2' : k === 'Foam' ? 'رغوة' : k === 'Water' ? 'ماء' : k === 'Ceiling' ? 'سقفية' : k}</span>
-                <span className="font-bold text-gray-800">{v}</span>
-              </div>
-            ))}
-            {Object.keys(typeSummary).length === 0 && <p className="text-gray-400 text-sm text-center py-2">لا توجد نتائج</p>}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow p-4 md:p-5 border border-gray-100">
-          <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center"><Activity className="w-4 h-4 ml-1.5 text-purple-600" /> حسب الحجم</h4>
-          <div className="space-y-1.5">
-            {summaryEntries(sizeSummary).map(([k, v]) => (
-              <div key={k} className="flex justify-between text-sm py-1 border-b border-gray-50 last:border-0">
-                <span className="text-gray-600">{k}</span>
-                <span className="font-bold text-gray-800">{v}</span>
-              </div>
-            ))}
-            {Object.keys(sizeSummary).length === 0 && <p className="text-gray-400 text-sm text-center py-2">لا توجد نتائج</p>}
-          </div>
-        </div>
-      </div>
-
+      <button onClick={() => setShowReport(true)} className="w-full py-2.5 bg-white border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:text-blue-600 hover:border-blue-400 hover:bg-blue-50 transition-colors text-sm font-bold flex items-center justify-center gap-2"><FileText className="w-4 h-4" /> عرض التقرير الكامل ({filteredExts.length} طفاية)</button>
       <div className="bg-white rounded-xl shadow p-4 md:p-6 border border-gray-100">
         <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><AlertTriangle className="w-5 h-5 ml-2 text-red-500" />تتطلب انتباهاً عاجلاً <span className="text-sm font-normal text-gray-500 mr-2">({urgentExts.length})</span></h3>
         <div className="hidden md:block overflow-x-auto">
@@ -689,6 +639,76 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
         )}
       </div>
       {showContactsModal && <EditContactsModal contacts={contacts} onClose={() => setShowContactsModal(false)} onSave={setContacts} />}
+      {showReport && <ReportModal exts={filteredExts} filterMainLocation={filterMainLocation} filterSubLocation={filterSubLocation} onClose={() => setShowReport(false)} />}
+    </div>
+  );
+}
+
+function ReportModal({ exts, filterMainLocation, filterSubLocation, onClose }) {
+  const [printMode, setPrintMode] = useState(false);
+  const typeLabel = (t) => t === 'Powder' ? 'بودرة' : t === 'CO2' ? 'CO2' : t === 'Foam' ? 'رغوة' : t === 'Water' ? 'ماء' : t === 'Ceiling' ? 'سقفية' : t;
+  const statusBg = (s) => s.includes('صيانة') || s === 'منتهية' ? 'bg-red-50 text-red-800' : s === 'صالحة' ? 'bg-green-50 text-green-800' : 'bg-orange-50 text-orange-800';
+  const locationLabel = filterMainLocation === 'All' ? 'جميع المواقع' : filterSubLocation === 'All' ? filterMainLocation : `${filterMainLocation} / ${filterSubLocation}`;
+  const summary = exts.reduce((acc, e) => {
+    acc[e.status] = (acc[e.status] || 0) + 1;
+    return acc;
+  }, {});
+  return (
+    <div className={`fixed inset-0 z-50 flex items-start justify-center ${printMode ? 'p-0' : 'p-4 overflow-y-auto bg-black/50'}`}>
+      <div className={`bg-white ${printMode ? 'w-full min-h-screen rounded-none shadow-none' : 'w-full max-w-4xl rounded-xl shadow-2xl my-8'} ${printMode ? '' : 'overflow-hidden'}`}>
+        {!printMode && (
+          <div className="bg-blue-600 text-white p-4 flex justify-between items-center sticky top-0 z-10">
+            <h3 className="font-bold text-lg flex items-center"><FileText className="w-5 h-5 ml-2" /> تقرير شامل عن الطفايات</h3>
+            <div className="flex gap-2">
+              <button onClick={() => { setPrintMode(true); setTimeout(() => { window.print(); setPrintMode(false); }, 100); }} className="text-sm bg-blue-500 hover:bg-blue-400 text-white px-3 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1"><FileText className="w-4 h-4" /> طباعة</button>
+              <button onClick={onClose} className="text-blue-200 hover:text-white p-1">&times;</button>
+            </div>
+          </div>
+        )}
+        <div className="p-4 md:p-8" dir="rtl">
+          <div className="text-center mb-6 border-b-2 border-gray-200 pb-4">
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900 mb-1">تقرير شامل عن الطفايات</h1>
+            <p className="text-gray-500 text-sm">الموقع: {locationLabel} — إجمالي الطفايات: {exts.length}</p>
+            <div className="flex flex-wrap justify-center gap-3 mt-2 text-xs text-gray-600">
+              {Object.entries(summary).map(([k, v]) => <span key={k} className="bg-gray-100 px-2 py-1 rounded">{k}: <strong>{v}</strong></span>)}
+            </div>
+          </div>
+          <table className="w-full text-right border-collapse text-xs md:text-sm">
+            <thead>
+              <tr className="bg-gray-100 text-gray-700 border-b-2 border-gray-300">
+                <th className="p-2 md:p-3 font-bold">#</th>
+                <th className="p-2 md:p-3 font-bold">الرقم</th>
+                <th className="p-2 md:p-3 font-bold">النوع</th>
+                <th className="p-2 md:p-3 font-bold">الحجم</th>
+                <th className="p-2 md:p-3 font-bold">الموقع</th>
+                <th className="p-2 md:p-3 font-bold">كابينة</th>
+                <th className="p-2 md:p-3 font-bold">الحالة</th>
+                <th className="p-2 md:p-3 font-bold">آخر فحص</th>
+                <th className="p-2 md:p-3 font-bold">ملاحظات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {exts.map((ext, i) => (
+                <tr key={ext.id} className={`border-b border-gray-100 ${ext.inCabinet ? 'bg-yellow-50/40' : ''} hover:bg-gray-50`}>
+                  <td className="p-2 md:p-3 text-gray-400 text-xs">{i + 1}</td>
+                  <td className="p-2 md:p-3 font-bold text-gray-800 whitespace-nowrap">{ext.number}</td>
+                  <td className="p-2 md:p-3 text-gray-600">{typeLabel(ext.type)}</td>
+                  <td className="p-2 md:p-3 text-gray-600">{ext.size}</td>
+                  <td className="p-2 md:p-3 text-gray-600 max-w-[150px] truncate" title={ext.location}>{ext.location}</td>
+                  <td className="p-2 md:p-3 text-center">{ext.inCabinet ? <span className="text-yellow-600 font-bold text-base" title="مثبتة داخل كابينة">🗄️</span> : '—'}</td>
+                  <td className="p-2 md:p-3"><span className={`px-2 py-0.5 rounded-full text-[10px] md:text-xs font-bold whitespace-nowrap ${statusBg(ext.status)}`}>{ext.status}</span></td>
+                  <td className="p-2 md:p-3 text-gray-500 text-xs whitespace-nowrap">{ext.lastDate || '—'}</td>
+                  <td className="p-2 md:p-3 text-gray-500 text-xs max-w-[120px] truncate" title={ext.notes}>{ext.notes || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {exts.length === 0 && <p className="text-center text-gray-400 py-8">لا توجد طفايات تطابق الفلتر المحدد.</p>}
+          <div className="mt-6 text-center text-xs text-gray-400 border-t border-gray-200 pt-4">
+            <p>تم إنشاء هذا التقرير تلقائياً — {new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
