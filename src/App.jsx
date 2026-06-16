@@ -610,6 +610,43 @@ function LocationDropdown({ options, value, onChange, placeholder, onAddLocation
   );
 }
 
+function getSizeOptions(type) {
+  if (type === 'Water' || type === 'Foam') {
+    return ['6L', '9L', '12L'];
+  }
+  return ['1Kg', '2Kg', '4Kg', '6Kg', '12Kg'];
+}
+
+function SizeDropdown({ value, onChange, type }) {
+  const [open, setOpen] = useState(false);
+  const [customSizes, setCustomSizes] = useState([]);
+  const ref = useRef();
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+  const baseOptions = getSizeOptions(type);
+  const allOptions = [...baseOptions, ...customSizes].sort((a, b) => parseFloat(a) - parseFloat(b));
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen(!open)} className="w-full border p-2 rounded bg-gray-50 outline-none text-right flex items-center justify-between gap-1">
+        <span className="truncate">{value || 'اختر الحجم'}</span>
+        <span className="text-xs text-gray-400">▼</span>
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+          {allOptions.map(opt => (
+            <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false); }} className={`w-full text-right px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors ${value === opt ? 'bg-red-50 text-red-700 font-bold' : 'text-gray-700'}`}>{opt}</button>
+          ))}
+          <div className="border-t border-gray-100 mx-2 my-1" />
+          <button type="button" onClick={() => { setOpen(false); const name = prompt('أدخل الحجم الجديد:'); if (name) { setCustomSizes(prev => [...prev, name]); onChange(name); } }} className="w-full text-right px-4 py-2.5 text-sm text-blue-600 hover:bg-blue-50 font-bold transition-colors flex items-center gap-2"><Plus className="w-4 h-4" /> إضافة حجم جديد</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EditContactsModal({ contacts, onClose, onSave }) {
   const [localContacts, setLocalContacts] = useState(
     (contacts && contacts.length > 0 ? contacts : [{ id: Date.now(), name: '', phone: '' }]).map(c => ({ ...c }))
@@ -1175,7 +1212,7 @@ function ActionModal({ exts, onClose, onSubmit, userRole }) {
 }
 
 function AddExtinguisherModal({ onClose, onAdd, locationTree, onAddLocation }) {
-  const [formData, setFormData] = useState({ numPart: '', size: '6Kg', type: 'Powder', location: '', lastDate: new Date().toISOString().split('T')[0], notes: '', inCabinet: false });
+  const [formData, setFormData] = useState({ numPart: '', size: '6Kg', type: 'Powder', location: '', lastDate: new Date().toISOString().split('T')[0], condition: 'سليمة', notes: '', inCabinet: false });
 
   const handleSubmit = (e) => { 
     e.preventDefault(); 
@@ -1200,8 +1237,8 @@ function AddExtinguisherModal({ onClose, onAdd, locationTree, onAddLocation }) {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option><option value="Ceiling">سقفية</option></select></div>
-            <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><input required type="text" className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.size} onChange={e => setFormData({...formData, size: e.target.value})} /></div>
+            <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value, size: ''})}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option><option value="Ceiling">سقفية</option></select></div>
+            <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><SizeDropdown value={formData.size} onChange={v => setFormData({...formData, size: v})} type={formData.type} /></div>
           </div>
           <div>
             <label className="block text-sm text-gray-600 mb-1">الموقع</label>
@@ -1215,6 +1252,8 @@ function AddExtinguisherModal({ onClose, onAdd, locationTree, onAddLocation }) {
           </div>
           <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="inCabinet" className="w-4 h-4 text-red-600 rounded" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="inCabinet" className="text-sm font-bold text-gray-700 cursor-pointer select-none">مثبتة داخل كابينة</label></div>
           <div><label className="block text-sm text-gray-600 mb-1">تاريخ الإنشاء / الصيانة</label><input required type="date" className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
+          <div><label className="block text-sm font-bold text-gray-700 mb-1">النتيجة / الحالة</label><select className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-red-500 outline-none bg-gray-50" value={formData.condition} onChange={e => setFormData({...formData, condition: e.target.value})}><option value="سليمة">سليمة وجاهزة للعمل</option><option value="تالفة">تالفة / تحتاج استبدال</option><option value="تسريب">يوجد تسريب</option><option value="إعادة تعبئة">تحتاج إعادة تعبئة</option></select></div>
+          <div><label className="block text-sm font-bold text-gray-700 mb-1">ملاحظات (اختياري)</label><textarea className="w-full border p-3 rounded-lg focus:ring-2 focus:ring-red-500 h-24 text-sm outline-none bg-gray-50" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} placeholder="ملاحظات حول الطفاية..." /></div>
           <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-red-600 text-white py-2.5 rounded-lg font-bold hover:bg-red-700 shadow-md">حفظ</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-bold hover:bg-gray-300">إلغاء</button></div>
         </form>
       </div>
@@ -1233,8 +1272,8 @@ function EditExtinguisherModal({ ext, onClose, onEdit, locationTree, onAddLocati
         <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">
           <div><label className="block text-sm text-gray-600 mb-1">رقم الطفاية</label><input required type="text" className="w-full border p-2 rounded bg-gray-200 text-gray-600 font-bold outline-none cursor-not-allowed" value={formData.number} disabled dir="ltr" /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 bg-gray-50 outline-none" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option><option value="Ceiling">سقفية</option></select></div>
-            <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><input required type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 bg-gray-50 outline-none" value={formData.size} onChange={e => setFormData({...formData, size: e.target.value})} /></div>
+            <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 bg-gray-50 outline-none" value={formData.type} onChange={e => { const newType = e.target.value; const sizes = getSizeOptions(newType); setFormData({...formData, type: newType, size: sizes.includes(formData.size) ? formData.size : '' }); }}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option><option value="Ceiling">سقفية</option></select></div>
+            <div><label className="block text-sm text-gray-600 mb-1">الحجم</label><SizeDropdown value={formData.size} onChange={v => setFormData({...formData, size: v})} type={formData.type} /></div>
           </div>
           <div>
             <label className="block text-sm text-gray-600 mb-1">الموقع</label>
@@ -2175,7 +2214,7 @@ function DeveloperSettings({ locationTree, setLocationTree, contacts, auditLogs,
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">الحجم</label>
-            <input type="text" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.size} onChange={e => setBulkData({...bulkData, size: e.target.value})} />
+            <SizeDropdown value={bulkData.size} onChange={v => setBulkData({...bulkData, size: v})} type={bulkData.type} />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">الموقع الأساسي</label>
