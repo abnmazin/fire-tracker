@@ -643,16 +643,17 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
   );
 }
 
-function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQuickAddLocation, db, fbUser, appId, logAction, auditLogs }) {
+function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQuickAddLocation, db, fbUser, appId, logAction }) {
   const [filterMainLocation, setFilterMainLocation] = useState('All');
   const [filterSubLocation, setFilterSubLocation] = useState('All');
   const [expanded, setExpanded] = useState(new Set());
-  const [transferData, setTransferData] = useState(null);
   const [receiptData, setReceiptData] = useState(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
-  const [subLocForTransfer, setSubLocForTransfer] = useState('');
-  const [showPickModal, setShowPickModal] = useState(false);
-  const [pickSelected, setPickSelected] = useState([]);
+  const [cartItems, setCartItems] = useState([]);
+  const [showCountModal, setShowCountModal] = useState(false);
+  const [countModalData, setCountModalData] = useState(null);
+  const [countModalValue, setCountModalValue] = useState(1);
+  const [cartTargetLocation, setCartTargetLocation] = useState('');
 
   const mainLocationNames = useMemo(() => locationTree.map(n => n.name).sort((a, b) => a.localeCompare(b, 'ar')), [locationTree]);
   const subLocationOptions = useMemo(() => {
@@ -671,11 +672,11 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
 
   const typeLabel = (t) => t === 'Powder' ? 'بودرة' : t === 'CO2' ? 'CO2' : t === 'Foam' ? 'رغوة' : t === 'Water' ? 'ماء' : t === 'Ceiling' ? 'سقفية' : t;
   const typeMeta = {
-    'بودرة': { icon: <FireExtinguisher className="w-5 h-5" />, color: 'from-blue-500 to-blue-600', border: 'border-blue-200', bar: 'bg-blue-500' },
-    'CO2': { icon: <ShieldCheck className="w-5 h-5" />, color: 'from-slate-500 to-slate-600', border: 'border-slate-200', bar: 'bg-slate-500' },
-    'رغوة': { icon: <ShieldAlert className="w-5 h-5" />, color: 'from-green-500 to-green-600', border: 'border-green-200', bar: 'bg-green-500' },
-    'ماء': { icon: <Activity className="w-5 h-5" />, color: 'from-cyan-500 to-cyan-600', border: 'border-cyan-200', bar: 'bg-cyan-500' },
-    'سقفية': { icon: <AlertTriangle className="w-5 h-5" />, color: 'from-purple-500 to-purple-600', border: 'border-purple-200', bar: 'bg-purple-500' },
+    'بودرة': { icon: <FireExtinguisher className="w-5 h-5" />, color: 'from-blue-500 to-blue-600', border: 'border-blue-200' },
+    'CO2': { icon: <ShieldCheck className="w-5 h-5" />, color: 'from-slate-500 to-slate-600', border: 'border-slate-200' },
+    'رغوة': { icon: <ShieldAlert className="w-5 h-5" />, color: 'from-green-500 to-green-600', border: 'border-green-200' },
+    'ماء': { icon: <Activity className="w-5 h-5" />, color: 'from-cyan-500 to-cyan-600', border: 'border-cyan-200' },
+    'سقفية': { icon: <AlertTriangle className="w-5 h-5" />, color: 'from-purple-500 to-purple-600', border: 'border-purple-200' },
   };
 
   const extMap = useMemo(() => { const m = {}; filteredExts.forEach(e => m[e.id] = e); return m; }, [filteredExts]);
@@ -712,68 +713,58 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
     setExpanded(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
   };
 
-  const subLocExts = useMemo(() => {
-    if (!filterMainLocation || filterMainLocation === 'All' || !subLocForTransfer) return [];
-    const path = filterMainLocation + ' / ' + subLocForTransfer;
-    return extinguishers.filter(e => !e.archived && (e.location === path || e.location.startsWith(path + ' / ')));
-  }, [extinguishers, filterMainLocation, subLocForTransfer]);
+  const handleSubLocClick = (sub, ids) => {
+    if (ids.length === 0) return;
+    setCountModalData({ subLocation: sub, total: ids.length, extIds: ids, extNumbers: ids.map(id => extMap[id]?.number || '').filter(Boolean) });
+    setCountModalValue(Math.min(1, ids.length));
+    setShowCountModal(true);
+  };
 
-  const transferLogs = useMemo(() => {
-    return (auditLogs || []).filter(l => l.action && l.action.includes('نقل')).slice(0, 20);
-  }, [auditLogs]);
+  const confirmCount = () => {
+    if (!countModalData) return;
+    const count = Math.min(countModalValue, countModalData.total);
+    const ids = countModalData.extIds.slice(0, count);
+    const numbers = countModalData.extNumbers.slice(0, count);
+    setCartItems(prev => [...prev, { subLocation: countModalData.subLocation, count, total: countModalData.total, extIds: ids, extNumbers: numbers }]);
+    setShowCountModal(false);
+    setCountModalData(null);
+  };
 
-  const handleTransfer = (extIds, newLocation) => {
-    if (!db || !fbUser || extIds.length === 0) return;
+  const removeCartItem = (index) => {
+    setCartItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleCartTransfer = () => {
+    if (!db || !fbUser || cartItems.length === 0 || !cartTargetLocation) return;
+    const allIds = cartItems.flatMap(item => item.extIds);
     const batch = writeBatch(db);
     const extList = [];
-    extIds.forEach(id => {
+    allIds.forEach(id => {
       const ext = extinguishers.find(e => String(e.id) === String(id));
       if (ext) {
-        batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, location: newLocation });
+        batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, location: cartTargetLocation });
         extList.push(ext);
       }
     });
     batch.commit().catch(err => console.error("batch err:", err));
-    setExtinguishers(prev => prev.map(e => extIds.includes(e.id) ? { ...e, location: newLocation } : e));
-    logAction(`نقل ${extIds.length} طفاية إلى "${newLocation}"`);
+    setExtinguishers(prev => prev.map(e => allIds.includes(e.id) ? { ...e, location: cartTargetLocation } : e));
+    logAction(`نقل ${allIds.length} طفاية إلى "${cartTargetLocation}"`);
     const fromLocation = extList.length > 0 ? extList[0].location : '—';
     setReceiptData({
       receiptId: `TRF-${String(Date.now()).slice(-5)}`,
       date: new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'numeric', day: 'numeric' }),
-      count: extIds.length,
+      count: allIds.length,
       numbers: extList.map(e => e.number).join('، '),
       from: fromLocation,
-      to: newLocation,
+      to: cartTargetLocation,
       userName: user?.name || '—'
     });
-    setTransferData(null);
-    setShowPickModal(false);
-  };
-
-  const openPickModal = () => {
-    setPickSelected(filteredExts.map(e => e.id));
-    setShowPickModal(true);
-  };
-
-  const togglePick = (id) => {
-    setPickSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  };
-
-  const handleScenario1 = () => { setTransferData(filteredExts); };
-
-  const handleScenario2 = () => {
-    if (!subLocForTransfer || subLocExts.length === 0) return;
-    setTransferData(subLocExts);
-  };
-
-  const confirmPick = () => {
-    const selectedExts = filteredExts.filter(e => pickSelected.includes(e.id));
-    if (selectedExts.length === 0) return;
-    setShowPickModal(false);
-    setTransferData(selectedExts);
+    setCartItems([]);
+    setCartTargetLocation('');
   };
 
   const closeReceipt = () => setReceiptData(null);
+  const totalCartCount = cartItems.reduce((sum, item) => sum + item.count, 0);
 
   return (
     <div className="space-y-5">
@@ -781,6 +772,12 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
         <div className="flex items-center gap-2 mb-4">
           <div className="bg-blue-100 p-2 rounded-lg"><FileText className="w-5 h-5 text-blue-600" /></div>
           <h2 className="text-lg font-bold text-gray-800">التقارير والترحيل</h2>
+          {cartItems.length > 0 && (
+            <button onClick={() => document.getElementById('cartSection').scrollIntoView({ behavior: 'smooth' })} className="flex items-center gap-1.5 text-sm text-orange-600 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded-lg transition-colors font-bold">
+              <span className="bg-orange-600 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">{totalCartCount}</span>
+              سلة النقل
+            </button>
+          )}
           <button onClick={() => setShowPrintModal(true)} className="mr-auto flex items-center gap-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors font-bold shadow-sm">
             <Printer className="w-4 h-4" /> طباعة التقرير
           </button>
@@ -822,22 +819,18 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
                         {Object.entries(lData.sizes).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(([size, sData]) => {
                           const key = `${loc}|${size}`;
                           const isOpen = expanded.has(key);
-                          const pct = Math.round((sData.count / locTotal) * 100);
                           return (
                             <div key={size}>
                               <button onClick={() => toggle(key)} className="w-full text-right flex items-center gap-2 group cursor-pointer">
                                 <span className={`shrink-0 text-[10px] text-gray-300 transition-all duration-200 ${isOpen ? 'rotate-90 text-blue-500' : 'group-hover:text-blue-400'}`}>▶</span>
                                 <span className={`flex-1 text-sm ${isOpen ? 'text-blue-700 font-bold' : 'text-gray-600 group-hover:text-blue-600'} transition-colors`}>حجم {size}</span>
                                 <span className="bg-gray-100 text-gray-700 text-xs font-bold px-2.5 py-0.5 rounded-full group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">{sData.count}</span>
-                                <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden hidden sm:block">
-                                  <div className={`h-full rounded-full transition-all duration-500 ${meta.bar}`} style={{ width: `${pct}%` }} />
-                                </div>
                               </button>
                               <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-96 opacity-100 mt-1.5' : 'max-h-0 opacity-0'}`}>
                                 {Object.keys(sData.subLocs).length > 0 && (
                                   <div className="mr-5 pr-3 border-r-2 border-gray-100 space-y-1">
                                     {Object.entries(sData.subLocs).sort((a, b) => b[1].count - a[1].count).map(([sub, s]) => (
-                                      <button key={sub} onClick={() => setTransferData(s.ids.map(id => extMap[id]).filter(Boolean))} className="w-full text-right flex items-center justify-between py-1 group cursor-pointer hover:bg-blue-50 rounded px-1 transition-colors">
+                                      <button key={sub} onClick={() => handleSubLocClick(sub, s.ids)} className="w-full text-right flex items-center justify-between py-1 group cursor-pointer hover:bg-blue-50 rounded px-1 transition-colors">
                                         <span className="text-xs text-gray-500 group-hover:text-blue-700 transition-colors">└ {sub}</span>
                                         <span className="text-xs font-bold text-gray-600 bg-gray-50 px-2 rounded group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">{s.count}</span>
                                       </button>
@@ -859,7 +852,7 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
                               {Object.keys(lData.cabinet.subLocs).length > 0 && (
                                 <div className="mr-5 pr-3 border-r-2 border-amber-100 space-y-1">
                                   {Object.entries(lData.cabinet.subLocs).sort((a, b) => b[1].count - a[1].count).map(([sub, s]) => (
-                                    <button key={sub} onClick={() => setTransferData(s.ids.map(id => extMap[id]).filter(Boolean))} className="w-full text-right flex items-center justify-between py-1 group cursor-pointer hover:bg-amber-50 rounded px-1 transition-colors">
+                                    <button key={sub} onClick={() => handleSubLocClick(sub, s.ids)} className="w-full text-right flex items-center justify-between py-1 group cursor-pointer hover:bg-amber-50 rounded px-1 transition-colors">
                                       <span className="text-xs text-amber-600 group-hover:text-amber-800 transition-colors">└ {sub}</span>
                                       <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 rounded group-hover:bg-amber-100 transition-colors">{s.count}</span>
                                     </button>
@@ -883,124 +876,60 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
         <p>آخر تحديث — {new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
       </div>
 
-      {/* Transfer Scenarios Section */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="bg-purple-100 p-2 rounded-lg"><ArrowRightLeft className="w-5 h-5 text-purple-600" /></div>
-          <h2 className="text-lg font-bold text-gray-800">الترحيل</h2>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="border border-gray-100 rounded-lg p-4 bg-gradient-to-b from-gray-50 to-white">
-            <h3 className="font-bold text-gray-800 text-sm mb-2">نقل حسب التقرير الحالي</h3>
-            <p className="text-xs text-gray-500 mb-3">نقل جميع الطفايات المطابقة للفلتر الحالي ({filteredExts.length})</p>
-            <button onClick={handleScenario1} disabled={filteredExts.length === 0} className="w-full bg-purple-500 hover:bg-purple-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold px-4 py-2.5 rounded-lg text-sm transition-colors">
-              نقل {filteredExts.length} طفاية
-            </button>
+      {/* Transfer Cart */}
+      {cartItems.length > 0 && (
+        <div id="cartSection" className="bg-white rounded-xl shadow-sm border-2 border-orange-200 p-4 md:p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="bg-orange-100 p-2 rounded-lg"><ArrowRightLeft className="w-5 h-5 text-orange-600" /></div>
+            <h2 className="text-lg font-bold text-gray-800">سلة النقل</h2>
+            <span className="text-sm text-orange-600 font-bold mr-auto">{totalCartCount} طفاية</span>
+            <button onClick={() => setCartItems([])} className="text-red-400 hover:text-red-600 text-sm font-bold transition-colors">تفريغ الكل</button>
           </div>
-          <div className="border border-gray-100 rounded-lg p-4 bg-gradient-to-b from-gray-50 to-white">
-            <h3 className="font-bold text-gray-800 text-sm mb-2">نقل موقع فرعي كامل</h3>
-            <p className="text-xs text-gray-500 mb-3">اختيار موقع فرعي لنقل جميع طفاياته</p>
-            <select value={subLocForTransfer} onChange={e => setSubLocForTransfer(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm mb-2 bg-white">
-              <option value="">اختر الموقع الفرعي...</option>
-              {subLocationOptions.map(loc => {
-                const count = extinguishers.filter(e => !e.archived && (e.location === (filterMainLocation + ' / ' + loc) || e.location.startsWith(filterMainLocation + ' / ' + loc + ' / '))).length;
-                return <option key={loc} value={loc}>{loc} ({count})</option>;
-              })}
-            </select>
-            <button onClick={handleScenario2} disabled={!subLocForTransfer} className="w-full bg-purple-500 hover:bg-purple-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold px-4 py-2.5 rounded-lg text-sm transition-colors">
-              نقل {subLocExts.length > 0 ? subLocExts.length : ''} طفاية
-            </button>
-          </div>
-          <div className="border border-gray-100 rounded-lg p-4 bg-gradient-to-b from-gray-50 to-white">
-            <h3 className="font-bold text-gray-800 text-sm mb-2">نقل عدد محدد</h3>
-            <p className="text-xs text-gray-500 mb-3">اختيار طفايات محددة من الفلتر الحالي</p>
-            <button onClick={openPickModal} disabled={filteredExts.length === 0} className="w-full bg-purple-500 hover:bg-purple-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold px-4 py-2.5 rounded-lg text-sm transition-colors">
-              اختيار الطفايات ({filteredExts.length})
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Transfer Log Section */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="bg-amber-100 p-2 rounded-lg"><History className="w-5 h-5 text-amber-600" /></div>
-          <h2 className="text-lg font-bold text-gray-800">سجل الترحيلات</h2>
-          <span className="text-sm text-gray-400 mr-auto">{transferLogs.length} عملية</span>
-        </div>
-        {transferLogs.length === 0 ? (
-          <p className="text-gray-400 text-sm text-center py-6">لا توجد عمليات ترحيل مسجلة.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b text-gray-500 text-xs"><th className="p-3 text-right">التاريخ</th><th className="p-3 text-right">العملية</th><th className="p-3 text-right">بواسطة</th></tr></thead>
-              <tbody>
-                {transferLogs.map(log => (
-                  <tr key={log.id} className="border-b hover:bg-gray-50 transition-colors">
-                    <td className="p-3 text-gray-500 font-medium">{log.date}</td>
-                    <td className="p-3 text-gray-800">{log.action}</td>
-                    <td className="p-3 text-gray-500">{log.userName}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Existing Transfer Modal */}
-      {transferData && transferData.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-            <div className="bg-gradient-to-l from-purple-700 to-purple-600 text-white p-4 flex justify-between items-center">
-              <h3 className="font-bold text-lg flex items-center gap-2"><ArrowRightLeft className="w-5 h-5" /> ترحيل {transferData.length} طفاية</h3>
-              <button onClick={() => setTransferData(null)} className="text-white/70 hover:text-white text-xl leading-none">&times;</button>
-            </div>
-            <div className="p-5 space-y-4">
-              <p className="text-sm text-gray-600">اختر الموقع الجديد لنقل الطفايات:</p>
-              <HierarchicalLocationPicker tree={locationTree} value='' onChange={(path) => { handleTransfer(transferData.map(e => e.id), path); }} placeholder="اختر الموقع..." onAddLocation={() => { const name = prompt('اسم الموقع الجديد:'); if (name && name.trim()) onQuickAddLocation(null, name.trim()); }} />
-              <div className="flex gap-2 pt-2">
-                <button onClick={() => setTransferData(null)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 py-2.5 rounded-lg font-bold transition-colors">إلغاء</button>
+          <div className="space-y-2 mb-4">
+            {cartItems.map((item, i) => (
+              <div key={i} className="flex items-center justify-between bg-orange-50 rounded-lg p-3 border border-orange-100">
+                <div className="flex items-center gap-2 min-w-0">
+                  <MapPin className="w-4 h-4 text-orange-500 shrink-0" />
+                  <span className="text-sm text-gray-700 truncate">{item.subLocation}</span>
+                  <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full shrink-0">{item.count} / {item.total}</span>
+                </div>
+                <button onClick={() => removeCartItem(i)} className="text-red-400 hover:text-red-600 transition-colors p-1 shrink-0"><X className="w-4 h-4" /></button>
               </div>
-            </div>
+            ))}
+          </div>
+          <div className="border-t border-orange-100 pt-4">
+            <p className="text-sm text-gray-600 mb-3">اختر الموقع الجديد لنقل الطفايات:</p>
+            <HierarchicalLocationPicker tree={locationTree} value={cartTargetLocation} onChange={setCartTargetLocation} placeholder="اختر الموقع..." onAddLocation={() => { const name = prompt('اسم الموقع الجديد:'); if (name && name.trim()) onQuickAddLocation(null, name.trim()); }} />
+            <button onClick={handleCartTransfer} disabled={!cartTargetLocation} className="w-full mt-4 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
+              <ArrowRightLeft className="w-4 h-4" /> نقل {totalCartCount} طفاية إلى الموقع المحدد
+            </button>
           </div>
         </div>
       )}
 
-      {/* Pick Modal (scenario 3) */}
-      {showPickModal && (
+      {/* Count Picker Modal */}
+      {showCountModal && countModalData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="bg-gradient-to-l from-blue-700 to-blue-600 text-white p-4 flex justify-between items-center shrink-0">
-              <h3 className="font-bold text-lg flex items-center gap-2"><Target className="w-5 h-5" /> اختر الطفايات للنقل</h3>
-              <button onClick={() => setShowPickModal(false)} className="text-white/70 hover:text-white text-xl leading-none">&times;</button>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="bg-gradient-to-l from-purple-700 to-purple-600 text-white p-4 flex justify-between items-center">
+              <h3 className="font-bold text-lg flex items-center gap-2"><Target className="w-5 h-5" /> اختيار العدد</h3>
+              <button onClick={() => { setShowCountModal(false); setCountModalData(null); }} className="text-white/70 hover:text-white text-xl leading-none">&times;</button>
             </div>
-            <div className="p-4 border-b border-gray-100 shrink-0">
-              <div className="flex items-center justify-between text-sm text-gray-500">
-                <span>اختر الطفايات التي تريد نقلها:</span>
-                <span className="font-bold text-blue-600">{pickSelected.length} / {filteredExts.length} محددة</span>
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-2 p-3 bg-purple-50 rounded-lg border border-purple-100">
+                <MapPin className="w-4 h-4 text-purple-600 shrink-0" />
+                <span className="text-sm font-bold text-gray-700">{countModalData.subLocation}</span>
+                <span className="text-xs text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full mr-auto">{countModalData.total} متاح</span>
               </div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {filteredExts.map(ext => (
-                <label key={ext.id} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${pickSelected.includes(ext.id) ? 'border-blue-300 bg-blue-50' : 'border-gray-100 hover:bg-gray-50'}`}>
-                  <input type="checkbox" checked={pickSelected.includes(ext.id)} onChange={() => togglePick(ext.id)} className="w-5 h-5 accent-blue-600 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-gray-800 text-sm">{ext.number}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${ext.type === 'Powder' ? 'bg-blue-100 text-blue-700' : ext.type === 'CO2' ? 'bg-slate-100 text-slate-700' : ext.type === 'Foam' ? 'bg-green-100 text-green-700' : ext.type === 'Water' ? 'bg-cyan-100 text-cyan-700' : 'bg-purple-100 text-purple-700'}`}>{typeLabel(ext.type)}</span>
-                      <span className="text-xs text-gray-400">{ext.size}</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-0.5 truncate">{ext.location}</p>
-                  </div>
-                </label>
-              ))}
-            </div>
-            <div className="p-4 border-t border-gray-100 shrink-0 flex gap-2">
-              <button onClick={confirmPick} disabled={pickSelected.length === 0} className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold py-2.5 rounded-lg transition-colors">
-                تأكيد نقل {pickSelected.length} طفاية
-              </button>
-              <button onClick={() => setShowPickModal(false)} className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2.5 px-6 rounded-lg transition-colors">إلغاء</button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">عدد الطفايات المطلوب نقلها:</label>
+                <input type="number" min={1} max={countModalData.total} value={countModalValue} onChange={e => setCountModalValue(Math.min(countModalData.total, Math.max(1, Number(e.target.value) || 1)))} className="w-full border border-gray-300 rounded-lg p-3 text-center text-lg font-bold focus:ring-2 focus:ring-purple-500 outline-none" />
+                <p className="text-xs text-gray-400 mt-1 text-center">من 1 إلى {countModalData.total}</p>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button onClick={confirmCount} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-lg font-bold transition-colors">إضافة إلى سلة النقل</button>
+                <button onClick={() => { setShowCountModal(false); setCountModalData(null); }} className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2.5 px-6 rounded-lg transition-colors">إلغاء</button>
+              </div>
             </div>
           </div>
         </div>
