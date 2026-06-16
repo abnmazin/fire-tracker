@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import {
   Plus, X, Edit3, ChevronDown, ChevronLeft, MapPin, Trash2, Save
 } from 'lucide-react';
-import { addNode, removeNode, updateNodeName, countNodes } from './locationUtils';
+import { addNode, removeNode, updateNodeName, countNodes, findNodeById } from './locationUtils';
 
 /**
  * Interactive tree manager for locations.
  * Allows adding, editing, and deleting nodes at any level.
  */
-export default function LocationTreeManager({ tree, onChange }) {
+export default function LocationTreeManager({ tree, onChange, onRenameLocation }) {
   const [expandedIds, setExpandedIds] = useState(new Set());
   const [addingToId, setAddingToId] = useState(null);
   const [newNodeName, setNewNodeName] = useState('');
@@ -56,8 +56,10 @@ export default function LocationTreeManager({ tree, onChange }) {
 
   const confirmEdit = () => {
     if (!editName.trim() || !editingId) return;
+    const oldName = findNodeById(tree, editingId).name;
     const newTree = updateNodeName(tree, editingId, editName.trim());
     onChange(newTree);
+    if (onRenameLocation) onRenameLocation(newTree, editingId, oldName, editName.trim());
     cancelEdit();
   };
 

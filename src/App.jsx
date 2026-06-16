@@ -13,7 +13,7 @@ import { initializeFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, wr
 
 import HierarchicalLocationPicker from './HierarchicalLocationPicker';
 import LocationTreeManager from './LocationTreeManager';
-import { migrateIfNeeded, getAllLeafPaths, getAllNodePaths, deserializeTree, serializeTree, flatToTree, addNode } from './locationUtils';
+import { migrateIfNeeded, getAllLeafPaths, getAllNodePaths, deserializeTree, serializeTree, flatToTree, addNode, getNodePath, findNodeById } from './locationUtils';
 
 let app, auth, db, appId;
 
@@ -327,6 +327,30 @@ export default function App() {
     if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: newTree }).catch(err => console.error("write err:", err));
   };
 
+  const handleLocationRename = (newTree, nodeId, oldName, newName) => {
+    setLocationTree(newTree);
+    if (!db || !fbUser) return;
+    const oldPath = getNodePath(locationTree, nodeId);
+    const newPath = getNodePath(newTree, nodeId);
+    if (!oldPath || !newPath) return;
+    const batch = writeBatch(db);
+    let count = 0;
+    const updatedExts = extinguishers.map(ext => {
+      if (ext.location === oldPath || ext.location.startsWith(oldPath + ' / ')) {
+        const newLocation = newPath + ext.location.slice(oldPath.length);
+        batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { location: newLocation }, { merge: true });
+        count++;
+        return { ...ext, location: newLocation };
+      }
+      return ext;
+    });
+    if (count > 0) {
+      batch.commit().catch(err => console.error("batch err:", err));
+      setExtinguishers(updatedExts);
+    }
+    setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: newTree }).catch(err => console.error("write err:", err));
+  };
+
   const handleQuickAddLocation = (parentId, name) => {
     if (!name || !name.trim()) return;
     const newTree = addNode(locationTree, parentId, name.trim());
@@ -453,7 +477,7 @@ export default function App() {
           {currentView === 'performance' && <PerformanceReport auditLogs={auditLogs} userRole={currentUser.role} db={db} fbUser={fbUser} appId={appId} setAuditLogs={setAuditLogs} />}
           {currentView === 'inspectionPolicy' && <InspectionPolicyCenter topLevelLocations={topLevelLocations} inspectionPolicies={inspectionPolicies} setInspectionPolicies={setInspectionPolicies} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
           {currentView === 'archive' && <ArchiveCenter extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
-          {currentView === 'settings' && <DeveloperSettings locationTree={locationTree} setLocationTree={handleSaveLocations} contacts={contacts} auditLogs={auditLogs} setAuditLogs={setAuditLogs} extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} siteSettings={siteSettings} setSiteSettings={handleSaveSiteSettings} topLevelLocations={topLevelLocations} />}
+          {currentView === 'settings' && <DeveloperSettings locationTree={locationTree} setLocationTree={handleSaveLocations} onRenameLocation={handleLocationRename} contacts={contacts} auditLogs={auditLogs} setAuditLogs={setAuditLogs} extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} siteSettings={siteSettings} setSiteSettings={handleSaveSiteSettings} topLevelLocations={topLevelLocations} />}
         </main>
       </div>
     </div>
@@ -1981,7 +2005,7 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
 }
 
 // 10. إعدادات المطور
-function DeveloperSettings({ locationTree, setLocationTree, contacts, auditLogs, setAuditLogs, extinguishers, setExtinguishers, users, setUsers, db, fbUser, appId, logAction, currentUser, siteSettings, setSiteSettings, topLevelLocations }) {
+function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, contacts, auditLogs, setAuditLogs, extinguishers, setExtinguishers, users, setUsers, db, fbUser, appId, logAction, currentUser, siteSettings, setSiteSettings, topLevelLocations }) {
   const [confirmDialog, setConfirmDialog] = useState(null); 
   const [bulkData, setBulkData] = useState({ quantity: 10, type: 'Powder', size: '6Kg', location: topLevelLocations[0] || '' });
   const [siteForm, setSiteForm] = useState({ name: siteSettings?.name || '', logoUrl: siteSettings?.logoUrl || '' });
@@ -2238,6 +2262,7 @@ function DeveloperSettings({ locationTree, setLocationTree, contacts, auditLogs,
         <LocationTreeManager
           tree={locationTree}
           onChange={setLocationTree}
+          onRenameLocation={onRenameLocation}
         />
       </div>
 
