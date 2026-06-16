@@ -643,7 +643,7 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
   );
 }
 
-function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQuickAddLocation, db, fbUser, appId, logAction }) {
+function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQuickAddLocation, db, fbUser, appId, logAction, auditLogs }) {
   const [filterMainLocation, setFilterMainLocation] = useState('All');
   const [filterSubLocation, setFilterSubLocation] = useState('All');
   const [expanded, setExpanded] = useState(new Set());
@@ -701,9 +701,12 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
           types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc].ids.push(e.id);
         }
         if (e.inCabinet) {
-          if (!types[type].locations[mainLoc].cabinet.subLocs[subLoc]) types[type].locations[mainLoc].cabinet.subLocs[subLoc] = { count: 0, ids: [] };
+          if (!types[type].locations[mainLoc].cabinet.subLocs[subLoc]) types[type].locations[mainLoc].cabinet.subLocs[subLoc] = { count: 0, ids: [], sizes: {} };
           types[type].locations[mainLoc].cabinet.subLocs[subLoc].count++;
           types[type].locations[mainLoc].cabinet.subLocs[subLoc].ids.push(e.id);
+          if (!types[type].locations[mainLoc].cabinet.subLocs[subLoc].sizes[e.size]) types[type].locations[mainLoc].cabinet.subLocs[subLoc].sizes[e.size] = { count: 0, ids: [] };
+          types[type].locations[mainLoc].cabinet.subLocs[subLoc].sizes[e.size].count++;
+          types[type].locations[mainLoc].cabinet.subLocs[subLoc].sizes[e.size].ids.push(e.id);
         }
       }
       if (e.inCabinet) types[type].locations[mainLoc].cabinet.count++;
@@ -714,6 +717,10 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
   const toggle = (key) => {
     setExpanded(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
   };
+
+  const transferLogs = useMemo(() => {
+    return (auditLogs || []).filter(l => l.action && l.action.includes('نقل')).slice(0, 20);
+  }, [auditLogs]);
 
   const handleSubLocClick = (sub, ids) => {
     if (ids.length === 0) return;
@@ -750,7 +757,7 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
     });
     batch.commit().catch(err => console.error("batch err:", err));
     setExtinguishers(prev => prev.map(e => allIds.includes(e.id) ? { ...e, location: cartTargetLocation } : e));
-    logAction(`نقل ${allIds.length} طفاية إلى "${cartTargetLocation}"`);
+    logAction(`نقل ${allIds.length} طفاية إلى "${cartTargetLocation}"`, `الأرقام: ${extList.map(e => e.number).join('، ')}${cartItems.map(i => `\n${i.subLocation}: ${i.extNumbers.join('، ')}`).join('')}`);
     const fromLocation = extList.length > 0 ? extList[0].location : '—';
     setReceiptData({
       receiptId: `TRF-${String(Date.now()).slice(-5)}`,
@@ -854,10 +861,18 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
                               {Object.keys(lData.cabinet.subLocs).length > 0 && (
                                 <div className="mr-5 pr-3 border-r-2 border-amber-100 space-y-1">
                                   {Object.entries(lData.cabinet.subLocs).sort((a, b) => b[1].count - a[1].count).map(([sub, s]) => (
-                                    <button key={sub} onClick={() => handleSubLocClick(sub, s.ids)} className="w-full text-right flex items-center justify-between py-1 group cursor-pointer hover:bg-amber-50 rounded px-1 transition-colors">
-                                      <span className="text-xs text-amber-600 group-hover:text-amber-800 transition-colors">└ {sub}</span>
-                                      <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 rounded group-hover:bg-amber-100 transition-colors">{s.count}</span>
-                                    </button>
+                                    <div key={sub}>
+                                      <button onClick={() => handleSubLocClick(sub, s.ids)} className="w-full text-right flex items-center justify-between py-1 group cursor-pointer hover:bg-amber-50 rounded px-1 transition-colors">
+                                        <span className="text-xs text-amber-600 group-hover:text-amber-800 transition-colors">└ {sub}</span>
+                                        <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 rounded group-hover:bg-amber-100 transition-colors">{s.count}</span>
+                                      </button>
+                                      {Object.entries(s.sizes || {}).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(([size, sizeData]) => (
+                                        <div key={size} className="mr-6 flex items-center gap-2 py-0.5">
+                                          <span className="text-xs text-amber-700">حجم {size}:</span>
+                                          <span className="text-xs font-bold text-amber-800">{sizeData.count}</span>
+                                        </div>
+                                      ))}
+                                    </div>
                                   ))}
                                 </div>
                               )}
@@ -908,6 +923,34 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
           </div>
         </div>
       )}
+
+      {/* Transfer Log */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="bg-amber-100 p-2 rounded-lg"><History className="w-5 h-5 text-amber-600" /></div>
+          <h2 className="text-lg font-bold text-gray-800">سجل الترحيلات</h2>
+          <span className="text-sm text-gray-400 mr-auto">{transferLogs.length} عملية</span>
+        </div>
+        {transferLogs.length === 0 ? (
+          <p className="text-gray-400 text-sm text-center py-6">لا توجد عمليات ترحيل مسجلة.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b text-gray-500 text-xs"><th className="p-3 text-right">التاريخ</th><th className="p-3 text-right">العملية</th><th className="p-3 text-right">التفاصيل</th><th className="p-3 text-right">بواسطة</th></tr></thead>
+              <tbody>
+                {transferLogs.map(log => (
+                  <tr key={log.id} className="border-b hover:bg-gray-50 transition-colors">
+                    <td className="p-3 text-gray-500 font-medium whitespace-nowrap">{log.date}</td>
+                    <td className="p-3 text-gray-800 font-medium">{log.action}</td>
+                    <td className="p-3 text-gray-600 text-xs max-w-[200px] truncate" title={log.details}>{log.details || '—'}</td>
+                    <td className="p-3 text-gray-500">{log.userName}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Count Picker Modal */}
       {showCountModal && countModalData && (
