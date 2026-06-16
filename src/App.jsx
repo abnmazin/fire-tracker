@@ -650,6 +650,14 @@ function ReportModal({ exts, filterMainLocation, filterSubLocation, onClose }) {
   const typeLabel = (t) => t === 'Powder' ? 'بودرة' : t === 'CO2' ? 'CO2' : t === 'Foam' ? 'رغوة' : t === 'Water' ? 'ماء' : t === 'Ceiling' ? 'سقفية' : t;
   const locationLabel = filterMainLocation === 'All' ? 'جميع المواقع' : filterSubLocation === 'All' ? filterMainLocation : `${filterMainLocation} / ${filterSubLocation}`;
 
+  const typeMeta = {
+    'بودرة': { icon: <FireExtinguisher className="w-5 h-5" />, color: 'from-blue-500 to-blue-600', light: 'bg-blue-50 text-blue-700', border: 'border-blue-200', bar: 'bg-blue-500' },
+    'CO2': { icon: <ShieldCheck className="w-5 h-5" />, color: 'from-slate-500 to-slate-600', light: 'bg-slate-50 text-slate-700', border: 'border-slate-200', bar: 'bg-slate-500' },
+    'رغوة': { icon: <ShieldAlert className="w-5 h-5" />, color: 'from-green-500 to-green-600', light: 'bg-green-50 text-green-700', border: 'border-green-200', bar: 'bg-green-500' },
+    'ماء': { icon: <Activity className="w-5 h-5" />, color: 'from-cyan-500 to-cyan-600', light: 'bg-cyan-50 text-cyan-700', border: 'border-cyan-200', bar: 'bg-cyan-500' },
+    'سقفية': { icon: <AlertTriangle className="w-5 h-5" />, color: 'from-purple-500 to-purple-600', light: 'bg-purple-50 text-purple-700', border: 'border-purple-200', bar: 'bg-purple-500' },
+  };
+
   const report = useMemo(() => {
     const types = {};
     exts.forEach(e => {
@@ -677,80 +685,109 @@ function ReportModal({ exts, filterMainLocation, filterSubLocation, onClose }) {
   };
 
   return (
-    <div className={`fixed inset-0 z-50 flex items-start justify-center ${printMode ? 'p-0' : 'p-4 overflow-y-auto bg-black/50'}`}>
-      <div className={`bg-white ${printMode ? 'w-full min-h-screen rounded-none shadow-none' : 'w-full max-w-3xl rounded-xl shadow-2xl my-8'} ${printMode ? '' : 'overflow-hidden'}`}>
+    <div className={`fixed inset-0 z-50 flex items-start justify-center ${printMode ? 'p-0' : 'p-4 overflow-y-auto bg-black/60'}`}>
+      <div className={`bg-white ${printMode ? 'w-full min-h-screen rounded-none shadow-none' : 'w-full max-w-3xl rounded-2xl shadow-2xl my-8'} ${printMode ? '' : 'overflow-hidden'}`}>
         {!printMode && (
-          <div className="bg-blue-600 text-white p-4 flex justify-between items-center sticky top-0 z-10">
-            <h3 className="font-bold text-lg flex items-center"><FileText className="w-5 h-5 ml-2" /> تقرير ملخص الطفايات</h3>
+          <div className="bg-gradient-to-l from-blue-700 to-blue-600 text-white p-4 flex justify-between items-center sticky top-0 z-10 shadow-md">
+            <h3 className="font-bold text-lg flex items-center gap-2"><div className="bg-white/20 p-1.5 rounded-lg"><FileText className="w-5 h-5" /></div> تقرير ملخص الطفايات</h3>
             <div className="flex gap-2">
-              <button onClick={() => { setPrintMode(true); setTimeout(() => { window.print(); setPrintMode(false); }, 100); }} className="text-sm bg-blue-500 hover:bg-blue-400 text-white px-3 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1"><FileText className="w-4 h-4" /> طباعة</button>
-              <button onClick={onClose} className="text-blue-200 hover:text-white p-1">&times;</button>
+              <button onClick={() => { setPrintMode(true); setTimeout(() => { window.print(); setPrintMode(false); }, 100); }} className="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1 backdrop-blur-sm"><FileText className="w-3.5 h-3.5" /> طباعة</button>
+              <button onClick={onClose} className="text-white/70 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors text-xl leading-none">&times;</button>
             </div>
           </div>
         )}
         <div className="p-4 md:p-8" dir="rtl">
-          <div className="text-center mb-6 border-b-2 border-gray-300 pb-4">
+          <div className="text-center mb-8 pb-5 border-b border-gray-100">
+            <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 text-xs font-bold px-4 py-1.5 rounded-full mb-3">{locationLabel}</div>
             <h1 className="text-xl md:text-2xl font-bold text-gray-900 mb-1">ملخص الطفايات</h1>
-            <p className="text-gray-500 text-sm">الموقع: {locationLabel} — الإجمالي: {exts.length} طفاية</p>
+            <p className="text-gray-500 text-sm">إجمالي {exts.length} طفاية</p>
           </div>
 
-          {Object.keys(report).length === 0 && <p className="text-center text-gray-400 py-8">لا توجد طفايات تطابق الفلتر المحدد.</p>}
+          {Object.keys(report).length === 0 && (
+            <div className="text-center py-16"><div className="text-gray-300 text-5xl mb-3">📋</div><p className="text-gray-400">لا توجد طفايات تطابق الفلتر المحدد.</p></div>
+          )}
 
-          <div className="space-y-6">
-            {Object.entries(report).map(([type, tData]) => (
-              <div key={type} className="border-2 border-gray-200 rounded-xl overflow-hidden">
-                <div className="bg-gray-100 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-                  <h2 className="text-base md:text-lg font-bold text-gray-800">{type}</h2>
-                  <span className="bg-blue-600 text-white text-sm font-bold px-3 py-1 rounded-full">{tData.total}</span>
-                </div>
-                <div className="divide-y divide-gray-100">
-                  {Object.entries(tData.locations).map(([loc, lData]) => (
-                    <div key={loc} className="px-4 md:px-6 py-3">
-                      <p className="font-bold text-gray-700 text-sm mb-2">داخل {loc}</p>
-                      <div className="space-y-1 mr-4">
-                        {Object.entries(lData.sizes).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(([size, sData]) => {
-                          const key = `${loc}|${size}`;
-                          const isOpen = expanded.has(key);
-                          return (
-                            <div key={size}>
-                              <button onClick={() => toggle(key)} className="text-gray-600 text-sm flex items-center gap-1.5 hover:text-blue-700 transition-colors cursor-pointer">
-                                <span className={`text-xs transition-transform ${isOpen ? 'rotate-90' : ''}`}>▶</span>
-                                حجم {size} — عدد <strong>{sData.count}</strong>
-                              </button>
-                              {isOpen && Object.keys(sData.subLocs).length > 0 && (
-                                <div className="mr-5 mt-1 space-y-0.5">
-                                  {Object.entries(sData.subLocs).sort((a, b) => b[1] - a[1]).map(([sub, c]) => (
-                                    <p key={sub} className="text-gray-500 text-xs">└ {sub} — {c}</p>
-                                  ))}
+          <div className="space-y-5">
+            {Object.entries(report).map(([type, tData]) => {
+              const meta = typeMeta[type] || typeMeta['بودرة'];
+              return (
+                <div key={type} className={`border ${meta.border} rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow`}>
+                  <div className={`bg-gradient-to-l ${meta.color} px-4 md:px-5 py-3 flex justify-between items-center`}>
+                    <h2 className="text-white font-bold text-sm md:text-base flex items-center gap-2">{meta.icon} {type}</h2>
+                    <span className="bg-white/25 text-white text-sm font-bold px-3 py-0.5 rounded-full backdrop-blur-sm">{tData.total}</span>
+                  </div>
+                  <div className="divide-y divide-gray-50">
+                    {Object.entries(tData.locations).map(([loc, lData]) => {
+                      const locTotal = lData.total;
+                      return (
+                        <div key={loc} className="px-4 md:px-6 py-3 hover:bg-gray-50/50 transition-colors">
+                          <div className="flex items-center gap-2 mb-2">
+                            <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                            <p className="font-bold text-gray-700 text-sm">{loc}</p>
+                            <span className="text-xs text-gray-400 mr-auto">{locTotal}</span>
+                          </div>
+                          <div className="space-y-1.5 mr-5">
+                            {Object.entries(lData.sizes).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(([size, sData]) => {
+                              const key = `${loc}|${size}`;
+                              const isOpen = expanded.has(key);
+                              const pct = Math.round((sData.count / locTotal) * 100);
+                              return (
+                                <div key={size}>
+                                  <button onClick={() => toggle(key)} className="w-full text-right flex items-center gap-2 group cursor-pointer">
+                                    <span className={`shrink-0 text-[10px] text-gray-300 transition-all duration-200 ${isOpen ? 'rotate-90 text-blue-500' : 'group-hover:text-blue-400'}`}>▶</span>
+                                    <span className={`flex-1 text-sm ${isOpen ? 'text-blue-700 font-bold' : 'text-gray-600 group-hover:text-blue-600'} transition-colors`}>حجم {size}</span>
+                                    <span className="bg-gray-100 text-gray-700 text-xs font-bold px-2.5 py-0.5 rounded-full group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">{sData.count}</span>
+                                    <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden hidden sm:block">
+                                      <div className={`h-full rounded-full transition-all duration-500 ${meta.bar}`} style={{ width: `${pct}%` }} />
+                                    </div>
+                                  </button>
+                                  <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-96 opacity-100 mt-1.5' : 'max-h-0 opacity-0'}`}>
+                                    {Object.keys(sData.subLocs).length > 0 && (
+                                      <div className="mr-5 pr-3 border-r-2 border-gray-100 space-y-1">
+                                        {Object.entries(sData.subLocs).sort((a, b) => b[1] - a[1]).map(([sub, c]) => (
+                                          <div key={sub} className="flex items-center justify-between py-0.5">
+                                            <span className="text-xs text-gray-500">└ {sub}</span>
+                                            <span className="text-xs font-bold text-gray-600 bg-gray-50 px-2 rounded">{c}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {lData.cabinet.count > 0 && (
-                          <div>
-                            <button onClick={() => toggle(`${loc}|__cab__`)} className="text-yellow-700 text-sm flex items-center gap-1.5 hover:text-yellow-800 transition-colors cursor-pointer">
-                              <span className={`text-xs transition-transform ${expanded.has(`${loc}|__cab__`) ? 'rotate-90' : ''}`}>▶</span>
-                              داخل الكبائن — عدد <strong>{lData.cabinet.count}</strong>
-                            </button>
-                            {expanded.has(`${loc}|__cab__`) && Object.keys(lData.cabinet.subLocs).length > 0 && (
-                              <div className="mr-5 mt-1 space-y-0.5">
-                                {Object.entries(lData.cabinet.subLocs).sort((a, b) => b[1] - a[1]).map(([sub, c]) => (
-                                  <p key={sub} className="text-yellow-600 text-xs">└ {sub} — {c}</p>
-                                ))}
+                              );
+                            })}
+                            {lData.cabinet.count > 0 && (
+                              <div>
+                                <button onClick={() => toggle(`${loc}|__cab__`)} className={`w-full text-right flex items-center gap-2 group cursor-pointer ${expanded.has(`${loc}|__cab__`) ? 'text-amber-700' : 'text-amber-600'} transition-colors`}>
+                                  <span className={`shrink-0 text-[10px] transition-all duration-200 ${expanded.has(`${loc}|__cab__`) ? 'rotate-90 text-amber-600' : 'text-amber-300 group-hover:text-amber-500'}`}>▶</span>
+                                  <span className={`flex-1 text-sm ${expanded.has(`${loc}|__cab__`) ? 'font-bold' : ''}`}>🗄️ داخل الكبائن</span>
+                                  <span className="bg-amber-50 text-amber-700 text-xs font-bold px-2.5 py-0.5 rounded-full">{lData.cabinet.count}</span>
+                                </button>
+                                <div className={`overflow-hidden transition-all duration-300 ease-in-out ${expanded.has(`${loc}|__cab__`) ? 'max-h-96 opacity-100 mt-1.5' : 'max-h-0 opacity-0'}`}>
+                                  {Object.keys(lData.cabinet.subLocs).length > 0 && (
+                                    <div className="mr-5 pr-3 border-r-2 border-amber-100 space-y-1">
+                                      {Object.entries(lData.cabinet.subLocs).sort((a, b) => b[1] - a[1]).map(([sub, c]) => (
+                                        <div key={sub} className="flex items-center justify-between py-0.5">
+                                          <span className="text-xs text-amber-600">└ {sub}</span>
+                                          <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 rounded">{c}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
-          <div className="mt-6 text-center text-xs text-gray-400 border-t border-gray-200 pt-4">
+          <div className="mt-8 text-center text-xs text-gray-400 border-t border-gray-100 pt-4">
             <p>تم إنشاء هذا التقرير تلقائياً — {new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
           </div>
         </div>
