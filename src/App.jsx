@@ -654,6 +654,7 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
   const [countModalData, setCountModalData] = useState(null);
   const [countModalValue, setCountModalValue] = useState(1);
   const [cartTargetLocation, setCartTargetLocation] = useState('');
+  const [showTransferModal, setShowTransferModal] = useState(false);
 
   const mainLocationNames = useMemo(() => locationTree.map(n => n.name).sort((a, b) => a.localeCompare(b, 'ar')), [locationTree]);
   const subLocationOptions = useMemo(() => {
@@ -915,11 +916,31 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
             ))}
           </div>
           <div className="border-t border-orange-100 pt-4">
-            <p className="text-sm text-gray-600 mb-3">اختر الموقع الجديد لنقل الطفايات:</p>
-            <HierarchicalLocationPicker tree={locationTree} value={cartTargetLocation} onChange={setCartTargetLocation} placeholder="اختر الموقع..." onAddLocation={() => { const name = prompt('اسم الموقع الجديد:'); if (name && name.trim()) onQuickAddLocation(null, name.trim()); }} />
-            <button onClick={handleCartTransfer} disabled={!cartTargetLocation} className="w-full mt-4 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
-              <ArrowRightLeft className="w-4 h-4" /> نقل {totalCartCount} طفاية إلى الموقع المحدد
+            <button onClick={() => setShowTransferModal(true)} className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
+              <ArrowRightLeft className="w-4 h-4" /> نقل {totalCartCount} طفاية
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer Modal */}
+      {showTransferModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="bg-gradient-to-l from-orange-700 to-orange-600 text-white p-4 flex justify-between items-center">
+              <h3 className="font-bold text-lg flex items-center gap-2"><ArrowRightLeft className="w-5 h-5" /> نقل الطفايات</h3>
+              <button onClick={() => setShowTransferModal(false)} className="text-white/70 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-gray-600">اختر الموقع الجديد لنقل <span className="font-bold">{totalCartCount}</span> طفاية:</p>
+              <div className="max-h-[40vh] overflow-y-auto">
+                <HierarchicalLocationPicker tree={locationTree} value={cartTargetLocation} onChange={(v) => { setCartTargetLocation(v); }} placeholder="اختر الموقع..." onAddLocation={() => { const name = prompt('اسم الموقع الجديد:'); if (name && name.trim()) onQuickAddLocation(null, name.trim()); }} />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => { setShowTransferModal(false); handleCartTransfer(); }} disabled={!cartTargetLocation} className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold py-2.5 rounded-lg transition-colors text-sm">تأكيد النقل</button>
+                <button onClick={() => setShowTransferModal(false)} className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2.5 px-6 rounded-lg transition-colors">إلغاء</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -934,20 +955,22 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
         {transferLogs.length === 0 ? (
           <p className="text-gray-400 text-sm text-center py-6">لا توجد عمليات ترحيل مسجلة.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b text-gray-500 text-xs"><th className="p-3 text-right">التاريخ</th><th className="p-3 text-right">العملية</th><th className="p-3 text-right">التفاصيل</th><th className="p-3 text-right">بواسطة</th></tr></thead>
-              <tbody>
-                {transferLogs.map(log => (
-                  <tr key={log.id} className="border-b hover:bg-gray-50 transition-colors">
-                    <td className="p-3 text-gray-500 font-medium whitespace-nowrap">{log.date}</td>
-                    <td className="p-3 text-gray-800 font-medium">{log.action}</td>
-                    <td className="p-3 text-gray-600 text-xs max-w-[200px] truncate" title={log.details}>{log.details || '—'}</td>
-                    <td className="p-3 text-gray-500">{log.userName}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-2">
+            {transferLogs.map(log => (
+              <div key={log.id} className="bg-amber-50/50 rounded-xl p-3 md:p-4 border border-amber-100/70 hover:bg-amber-50 transition-colors">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-gray-800 leading-tight">{log.action}</p>
+                    <p className="text-xs text-gray-500 mt-1.5 line-clamp-2" title={log.details}>{log.details || '—'}</p>
+                  </div>
+                  <span className="shrink-0 text-xs text-gray-400 bg-white px-2 py-1 rounded">{log.date}</span>
+                </div>
+                <div className="flex items-center justify-between mt-2 pt-2 border-t border-amber-100/70">
+                  <span className="text-xs text-gray-400">بواسطة: <span className="font-medium text-gray-600">{log.userName}</span></span>
+                  <span className="text-[10px] text-gray-300 font-mono">{log.id}</span>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
