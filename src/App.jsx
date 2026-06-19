@@ -9,7 +9,7 @@ import {
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { initializeFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, waitForPendingWrites, CACHE_SIZE_UNLIMITED } from 'firebase/firestore';
+import { initializeFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, waitForPendingWrites, CACHE_SIZE_UNLIMITED, updateDoc } from 'firebase/firestore';
 
 import HierarchicalLocationPicker from './HierarchicalLocationPicker';
 import LocationTreeManager from './LocationTreeManager';
@@ -720,7 +720,7 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
   };
 
   const transferLogs = useMemo(() => {
-    return (auditLogs || []).filter(l => l.action && l.action.includes('نقل')).slice(0, 20);
+    return (auditLogs || []).filter(l => l.action === 'نقل').slice(0, 50);
   }, [auditLogs]);
 
   const handleSubLocClick = (sub, ids) => {
@@ -758,8 +758,8 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
     });
     batch.commit().catch(err => console.error("batch err:", err));
     setExtinguishers(prev => prev.map(e => allIds.includes(e.id) ? { ...e, location: cartTargetLocation } : e));
-    logAction(`نقل ${allIds.length} طفاية إلى "${cartTargetLocation}"`, `الأرقام: ${extList.map(e => e.number).join('، ')}${cartItems.map(i => `\n${i.subLocation}: ${i.extNumbers.join('، ')}`).join('')}`);
     const fromLocation = extList.length > 0 ? extList[0].location : '—';
+    logAction('نقل', JSON.stringify({ ids: allIds, numbers: extList.map(e => e.number), fromLocation, toLocation: cartTargetLocation, count: allIds.length }));
     setReceiptData({
       receiptId: `TRF-${String(Date.now()).slice(-5)}`,
       date: new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'numeric', day: 'numeric' }),
@@ -775,6 +775,24 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
 
   const closeReceipt = () => setReceiptData(null);
   const totalCartCount = cartItems.reduce((sum, item) => sum + item.count, 0);
+
+  const handleUndoTransfer = (log) => {
+    let details;
+    try { details = JSON.parse(log.details); } catch { return; }
+    if (!details || !details.ids || !details.fromLocation) return;
+    const targetLocation = details.fromLocation;
+    if (db && fbUser) {
+      const batch = writeBatch(db);
+      details.ids.forEach(id => {
+        const ext = extinguishers.find(e => String(e.id) === String(id));
+        if (ext) batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(id)), { ...ext, location: targetLocation });
+      });
+      batch.commit().catch(err => console.error("undo err:", err));
+      updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(log.id)), { undone: true, undoDate: new Date().toLocaleString('ar-EG') }).catch(err => console.error("update err:", err));
+    }
+    setExtinguishers(prev => prev.map(e => details.ids.includes(e.id) ? { ...e, location: targetLocation } : e));
+    logAction('تراجع عن نقل', JSON.stringify({ ids: details.ids, numbers: details.numbers, fromLocation: details.toLocation, toLocation: targetLocation, count: details.count, originalLogId: log.id }));
+  };
 
   return (
     <div className="space-y-5">
@@ -956,21 +974,43 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
           <p className="text-gray-400 text-sm text-center py-6">لا توجد عمليات ترحيل مسجلة.</p>
         ) : (
           <div className="space-y-2">
-            {transferLogs.map(log => (
-              <div key={log.id} className="bg-amber-50/50 rounded-xl p-3 md:p-4 border border-amber-100/70 hover:bg-amber-50 transition-colors">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold text-gray-800 leading-tight">{log.action}</p>
-                    <p className="text-xs text-gray-500 mt-1.5 line-clamp-2" title={log.details}>{log.details || '—'}</p>
+            {transferLogs.map(log => {
+              let parsed;
+              try { parsed = JSON.parse(log.details); } catch { parsed = null; }
+              const isUndone = log.undone;
+              return (
+              <div key={log.id} className={`rounded-xl p-3 md:p-4 border transition-colors ${isUndone ? 'bg-gray-50 border-gray-200' : 'bg-amber-50/50 border-amber-100/70 hover:bg-amber-50'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className={`text-sm font-bold leading-tight ${isUndone ? 'text-gray-500 line-through' : 'text-gray-800'}`}>{parsed ? `نقل ${parsed.count} طفاية` : 'نقل'}</p>
+                        {isUndone && <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">تم التراجع عن النقل</span>}
+                      </div>
+                      {parsed ? (
+                        <div className={`text-xs mt-1.5 space-y-0.5 ${isUndone ? 'text-gray-400' : 'text-gray-500'}`}>
+                          <p><span className="text-gray-400">من:</span> <span className={isUndone ? 'text-gray-500' : ''}>{isUndone ? parsed.toLocation : parsed.fromLocation}</span></p>
+                          <p><span className="text-gray-400">إلى:</span> <span className={isUndone ? 'text-gray-500' : ''}>{isUndone ? parsed.fromLocation : parsed.toLocation}</span></p>
+                          <p className="font-mono text-gray-400" dir="ltr">{parsed.numbers?.join('، ')}</p>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500 mt-1.5 line-clamp-2" title={log.details}>{log.details || '—'}</p>
+                      )}
+                    </div>
+                    <div className="shrink-0 text-left">
+                      <div className="text-xs text-gray-400 bg-white px-2 py-1 rounded">{log.date}</div>
+                      {isUndone && log.undoDate && <div className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mt-1">تراجع: {log.undoDate}</div>}
+                    </div>
                   </div>
-                  <span className="shrink-0 text-xs text-gray-400 bg-white px-2 py-1 rounded">{log.date}</span>
-                </div>
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-amber-100/70">
                   <span className="text-xs text-gray-400">بواسطة: <span className="font-medium text-gray-600">{log.userName}</span></span>
-                  <span className="text-[10px] text-gray-300 font-mono">{log.id}</span>
+                  <div className="flex items-center gap-2">
+                    {parsed && !isUndone && <button onClick={() => handleUndoTransfer(log)} className="text-xs font-bold text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-2.5 py-1 rounded-lg transition-colors">تراجع</button>}
+                    <span className="text-[10px] text-gray-300 font-mono">{log.id}</span>
+                  </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1386,12 +1426,13 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
 
   const handleTransfer = (extIds, newLocation) => {
     const extsToTransfer = activeExtinguishers.filter(e => extIds.includes(e.id));
+    const fromLocation = extsToTransfer.length > 0 ? extsToTransfer[0].location : '—';
     if (db && fbUser) {
       const batch = writeBatch(db);
       extsToTransfer.forEach(ext => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, location: newLocation }));
       batch.commit().catch(err => console.error("write err:", err));
     } else { setExtinguishers(prev => prev.map(e => extIds.includes(e.id) ? { ...e, location: newLocation } : e)); }
-    logAction(extIds.length > 1 ? 'ترحيل جماعي' : 'ترحيل طفاية', `نقل (${extsToTransfer.map(e=>e.number).join('، ')}) إلى ${newLocation}`);
+    logAction('نقل', JSON.stringify({ ids: extIds, numbers: extsToTransfer.map(e=>e.number), fromLocation, toLocation: newLocation, count: extIds.length }));
     setTransferModalData(null); setSelectedIds([]); 
   };
 
