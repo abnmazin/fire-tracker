@@ -632,10 +632,10 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
                 <span className="text-gray-500 font-medium text-sm mb-4" dir="ltr">{c.phone}</span>
                 <div className="flex w-full gap-2 border-t border-gray-100 pt-3">
                   <a href={`tel:${c.phone}`} className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 rounded-lg flex items-center justify-center text-xs font-bold transition-colors"><Phone className="w-4 h-4 ml-1.5" /> اتصال</a>
-                </div>
-              </div>
-            ))}
+            </div>
           </div>
+        ))}
+      </div>
         )}
       </div>
       {showContactsModal && <EditContactsModal contacts={contacts} onClose={() => setShowContactsModal(false)} onSave={setContacts} />}
@@ -646,15 +646,15 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
 function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQuickAddLocation, db, fbUser, appId, logAction, auditLogs }) {
   const [filterMainLocation, setFilterMainLocation] = useState('All');
   const [filterSubLocation, setFilterSubLocation] = useState('All');
-  const [expanded, setExpanded] = useState(new Set());
+  const [filterType, setFilterType] = useState('All');
+  const [filterSize, setFilterSize] = useState('All');
   const [receiptData, setReceiptData] = useState(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [cartItems, setCartItems] = useState([]);
-  const [showCountModal, setShowCountModal] = useState(false);
-  const [countModalData, setCountModalData] = useState(null);
-  const [countModalValue, setCountModalValue] = useState(1);
   const [cartTargetLocation, setCartTargetLocation] = useState('');
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [expanded, setExpanded] = useState(new Set());
+  const [expandedSubs, setExpandedSubs] = useState(new Set());
 
   const mainLocationNames = useMemo(() => locationTree.map(n => n.name).sort((a, b) => a.localeCompare(b, 'ar')), [locationTree]);
   const subLocationOptions = useMemo(() => {
@@ -668,81 +668,81 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
   const filteredExts = useMemo(() => extinguishers.filter(e => !e.archived).filter(e => {
     const matchesMain = filterMainLocation === 'All' || e.location === filterMainLocation || e.location.startsWith(filterMainLocation + ' / ');
     const matchesSub = filterSubLocation === 'All' || e.location === (filterMainLocation + ' / ' + filterSubLocation) || e.location.includes(' / ' + filterSubLocation);
-    return matchesMain && matchesSub;
-  }), [extinguishers, filterMainLocation, filterSubLocation]);
+    const matchesType = filterType === 'All' || e.type === filterType;
+    const matchesSize = filterSize === 'All' || e.size === filterSize;
+    return matchesMain && matchesSub && matchesType && matchesSize;
+  }), [extinguishers, filterMainLocation, filterSubLocation, filterType, filterSize]);
 
   const typeLabel = (t) => t === 'Powder' ? 'بودرة' : t === 'CO2' ? 'CO2' : t === 'Foam' ? 'رغوة' : t === 'Water' ? 'ماء' : t === 'Ceiling' ? 'سقفية' : t;
-  const typeMeta = {
-    'بودرة': { icon: <FireExtinguisher className="w-5 h-5" />, color: 'from-blue-500 to-blue-600', border: 'border-blue-200' },
-    'CO2': { icon: <ShieldCheck className="w-5 h-5" />, color: 'from-slate-500 to-slate-600', border: 'border-slate-200' },
-    'رغوة': { icon: <ShieldAlert className="w-5 h-5" />, color: 'from-green-500 to-green-600', border: 'border-green-200' },
-    'ماء': { icon: <Activity className="w-5 h-5" />, color: 'from-cyan-500 to-cyan-600', border: 'border-cyan-200' },
-    'سقفية': { icon: <AlertTriangle className="w-5 h-5" />, color: 'from-purple-500 to-purple-600', border: 'border-purple-200' },
-  };
+
+  const typeOptions = useMemo(() => {
+    const types = new Set(extinguishers.filter(e => !e.archived).map(e => e.type));
+    return ['All', ...Array.from(types).sort()].map(t => ({ value: t, label: t === 'All' ? 'جميع الأنواع' : typeLabel(t) }));
+  }, [extinguishers]);
+
+  const sizeOptions = useMemo(() => {
+    const sizes = new Set(extinguishers.filter(e => !e.archived).map(e => e.size));
+    return ['All', ...Array.from(sizes).sort((a, b) => parseFloat(a) - parseFloat(b))].map(s => ({ value: s, label: s === 'All' ? 'جميع الأحجام' : s }));
+  }, [extinguishers]);
 
   const extMap = useMemo(() => { const m = {}; filteredExts.forEach(e => m[e.id] = e); return m; }, [filteredExts]);
 
   const report = useMemo(() => {
-    const types = {};
+    const grouped = {};
     filteredExts.forEach(e => {
-      const type = typeLabel(e.type);
-      if (!types[type]) types[type] = { total: 0, locations: {} };
-      types[type].total++;
       const parts = e.location.split(' / ');
       const mainLoc = parts[0];
-      const subLoc = parts.length > 1 ? e.location : '';
-      if (!types[type].locations[mainLoc]) types[type].locations[mainLoc] = { total: 0, sizes: {}, cabinet: { count: 0, subLocs: {} } };
-      types[type].locations[mainLoc].total++;
-      if (!types[type].locations[mainLoc].sizes[e.size]) types[type].locations[mainLoc].sizes[e.size] = { count: 0, subLocs: {} };
-      types[type].locations[mainLoc].sizes[e.size].count++;
-      if (subLoc) {
-        if (!e.inCabinet) {
-          if (!types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc]) types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc] = { count: 0, ids: [] };
-          types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc].count++;
-          types[type].locations[mainLoc].sizes[e.size].subLocs[subLoc].ids.push(e.id);
-        }
-        if (e.inCabinet) {
-          if (!types[type].locations[mainLoc].cabinet.subLocs[subLoc]) types[type].locations[mainLoc].cabinet.subLocs[subLoc] = { count: 0, ids: [], sizes: {} };
-          types[type].locations[mainLoc].cabinet.subLocs[subLoc].count++;
-          types[type].locations[mainLoc].cabinet.subLocs[subLoc].ids.push(e.id);
-          if (!types[type].locations[mainLoc].cabinet.subLocs[subLoc].sizes[e.size]) types[type].locations[mainLoc].cabinet.subLocs[subLoc].sizes[e.size] = { count: 0, ids: [] };
-          types[type].locations[mainLoc].cabinet.subLocs[subLoc].sizes[e.size].count++;
-          types[type].locations[mainLoc].cabinet.subLocs[subLoc].sizes[e.size].ids.push(e.id);
-        }
+      const subLoc = parts.length > 1 ? e.location : '(الموقع الأساسي)';
+      if (!grouped[mainLoc]) grouped[mainLoc] = { subLocs: {}, total: 0 };
+      if (!grouped[mainLoc].subLocs[subLoc]) grouped[mainLoc].subLocs[subLoc] = { items: [], total: 0 };
+      grouped[mainLoc].total++;
+      grouped[mainLoc].subLocs[subLoc].total++;
+      const type = typeLabel(e.type);
+      const key = `${type}|${e.size}|${e.inCabinet}`;
+      let item = grouped[mainLoc].subLocs[subLoc].items.find(i => i.key === key);
+      if (!item) {
+        item = { key, type, size: e.size, inCabinet: e.inCabinet, count: 0, ids: [] };
+        grouped[mainLoc].subLocs[subLoc].items.push(item);
       }
-      if (e.inCabinet) types[type].locations[mainLoc].cabinet.count++;
+      item.count++;
+      item.ids.push(e.id);
     });
-    return types;
+    return grouped;
   }, [filteredExts]);
-
-  const toggle = (key) => {
-    setExpanded(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
-  };
 
   const transferLogs = useMemo(() => {
     return (auditLogs || []).filter(l => l.action === 'نقل').slice(0, 50);
   }, [auditLogs]);
 
-  const handleSubLocClick = (sub, ids) => {
-    if (ids.length === 0) return;
-    setCountModalData({ subLocation: sub, total: ids.length, extIds: ids, extNumbers: ids.map(id => extMap[id]?.number || '').filter(Boolean) });
-    setCountModalValue(Math.min(1, ids.length));
-    setShowCountModal(true);
+  const getCartCount = (key) => cartItems.find(i => i.key === key)?.count || 0;
+
+  const handleCartIncrement = (subLocation, type, size, inCabinet, total, allIds, allNumbers) => {
+    const key = `${subLocation}|${type}|${size}|${inCabinet}`;
+    setCartItems(prev => {
+      const existing = prev.find(i => i.key === key);
+      if (existing) {
+        if (existing.count >= total) return prev;
+        const idx = existing.count;
+        return prev.map(i => i.key === key ? { ...i, count: i.count + 1, extIds: [...i.extIds, allIds[idx]], extNumbers: [...i.extNumbers, allNumbers[idx]] } : i);
+      }
+      return [...prev, { key, subLocation, type, size, inCabinet, count: 1, total, extIds: [allIds[0]], extNumbers: [allNumbers[0]] }];
+    });
   };
 
-  const confirmCount = () => {
-    if (!countModalData) return;
-    const count = Math.min(countModalValue, countModalData.total);
-    const ids = countModalData.extIds.slice(0, count);
-    const numbers = countModalData.extNumbers.slice(0, count);
-    setCartItems(prev => [...prev, { subLocation: countModalData.subLocation, count, total: countModalData.total, extIds: ids, extNumbers: numbers }]);
-    setShowCountModal(false);
-    setCountModalData(null);
+  const handleCartDecrement = (key) => {
+    setCartItems(prev => {
+      const existing = prev.find(i => i.key === key);
+      if (!existing) return prev;
+      if (existing.count <= 1) return prev.filter(i => i.key !== key);
+      return prev.map(i => i.key === key ? { ...i, count: i.count - 1, extIds: i.extIds.slice(0, -1), extNumbers: i.extNumbers.slice(0, -1) } : i);
+    });
   };
 
-  const removeCartItem = (index) => {
-    setCartItems(prev => prev.filter((_, i) => i !== index));
-  };
+  const removeCartItem = (key) => setCartItems(prev => prev.filter(i => i.key !== key));
+
+  const toggleMain = (key) => setExpanded(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+
+  const toggleSub = (mainLoc, subLoc) => { const key = `${mainLoc}||${subLoc}`; setExpandedSubs(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; }); };
 
   const handleCartTransfer = () => {
     if (!db || !fbUser || cartItems.length === 0 || !cartTargetLocation) return;
@@ -813,6 +813,12 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
         <div className="flex flex-wrap gap-2">
           <LocationDropdown options={mainLocationNames} value={filterMainLocation} onChange={setFilterMainLocation} placeholder="الموقع الرئيسي" onAddLocation={() => { const name = prompt('اسم الموقع الرئيسي الجديد:'); if (name && name.trim()) onQuickAddLocation(null, name.trim()); }} addLabel="إضافة موقع رئيسي" />
           <LocationDropdown options={subLocationOptions} value={filterSubLocation} onChange={setFilterSubLocation} placeholder="الموقع الفرعي" onAddLocation={() => { const name = prompt('اسم الموقع الفرعي الجديد:'); if (name && name.trim() && filterMainLocation !== 'All') { const parentId = locationTree.find(n => n.name === filterMainLocation)?.id; if (parentId) onQuickAddLocation(parentId, name.trim()); } }} addLabel="إضافة موقع فرعي" />
+          <select value={filterType} onChange={e => setFilterType(e.target.value)} className="text-xs bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-700 outline-none focus:ring-2 focus:ring-red-500 cursor-pointer">
+            {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <select value={filterSize} onChange={e => setFilterSize(e.target.value)} className="text-xs bg-white border border-gray-200 rounded-lg px-3 py-2 text-gray-700 outline-none focus:ring-2 focus:ring-red-500 cursor-pointer">
+            {sizeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
           <div className="flex items-center text-sm text-gray-500 mr-auto"><span className="font-bold text-gray-800 ml-1">{filteredExts.length}</span> طفاية</div>
         </div>
       </div>
@@ -824,87 +830,73 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
         </div>
       )}
 
-      <div className="space-y-4">
-        {Object.entries(report).map(([type, tData]) => {
-          const meta = typeMeta[type] || typeMeta['بودرة'];
+      <div className="space-y-6">
+        {Object.entries(report).map(([mainLoc, lData]) => {
+          const isOpen = expanded.has(mainLoc);
           return (
-            <div key={type} className={`border ${meta.border} rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow bg-white`}>
-              <div className={`bg-gradient-to-l ${meta.color} px-4 md:px-5 py-3 flex justify-between items-center`}>
-                <h2 className="text-white font-bold text-sm md:text-base flex items-center gap-2">{meta.icon} {type}</h2>
-                <span className="bg-white/25 text-white text-sm font-bold px-3 py-0.5 rounded-full backdrop-blur-sm">{tData.total}</span>
-              </div>
-              <div className="divide-y divide-gray-50">
-                {Object.entries(tData.locations).map(([loc, lData]) => {
-                  const locTotal = lData.total;
-                  return (
-                    <div key={loc} className="px-4 md:px-6 py-3 hover:bg-gray-50/50 transition-colors">
-                      <div className="flex items-center gap-2 mb-2">
-                        <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                        <p className="font-bold text-gray-700 text-sm">{loc}</p>
-                        <span className="text-xs text-gray-400 mr-auto">{locTotal}</span>
-                      </div>
-                      <div className="space-y-1.5 mr-5">
-                        {Object.entries(lData.sizes).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(([size, sData]) => {
-                          const key = `${loc}|${size}`;
-                          const isOpen = expanded.has(key);
+          <div key={mainLoc} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <button onClick={() => toggleMain(mainLoc)} className="w-full bg-gradient-to-l from-gray-700 to-gray-600 px-4 md:px-5 py-3 flex justify-between items-center hover:opacity-90 transition-opacity cursor-pointer">
+              <h2 className="text-white font-bold text-sm md:text-base flex items-center gap-2">
+                <span className={`text-white/70 text-xs transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>▶</span>
+                <MapPin className="w-4 h-4" /> {mainLoc}
+              </h2>
+              <span className="bg-white/25 text-white text-sm font-bold px-3 py-0.5 rounded-full">{lData.total}</span>
+            </button>
+            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+            <div className="divide-y divide-gray-50">
+              {Object.entries(lData.subLocs).sort((a, b) => a[0].localeCompare(b[0], 'ar')).map(([subLoc, sData]) => {
+                const subKey = `${mainLoc}||${subLoc}`;
+                const isSubOpen = expandedSubs.has(subKey);
+                return (
+                <div key={subLoc} className="p-3 md:p-4">
+                  <button onClick={() => toggleSub(mainLoc, subLoc)} className="w-full flex items-center gap-2 mb-1 cursor-pointer group">
+                    <span className="w-1.5 h-5 bg-gray-300 rounded-full shrink-0" />
+                    <span className={`text-gray-400 text-xs transition-transform duration-200 ${isSubOpen ? 'rotate-90' : ''}`}>▶</span>
+                    <p className="font-bold text-gray-700 text-sm group-hover:text-gray-900 transition-colors">{subLoc.includes(' / ') ? subLoc.split(' / ').slice(1).join(' / ') : subLoc}</p>
+                    <span className="text-xs text-gray-400 mr-auto">{sData.total}</span>
+                  </button>
+                  <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isSubOpen ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs md:text-sm">
+                      <thead>
+                        <tr className="border-b text-gray-500">
+                          <th className="p-2 text-right">النوع</th>
+                          <th className="p-2 text-right">الحجم</th>
+                          <th className="p-2 text-center">الكبينة</th>
+                          <th className="p-2 text-center">المتاح</th>
+                          <th className="p-2 text-center">الاختيار</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sData.items.sort((a, b) => a.type.localeCompare(b.type, 'ar') || parseFloat(a.size) - parseFloat(b.size)).map(item => {
+                          const cartCount = getCartCount(item.key);
                           return (
-                            <div key={size}>
-                              <button onClick={() => toggle(key)} className="w-full text-right flex items-center gap-2 group cursor-pointer">
-                                <span className={`shrink-0 text-[10px] text-gray-300 transition-all duration-200 ${isOpen ? 'rotate-90 text-blue-500' : 'group-hover:text-blue-400'}`}>▶</span>
-                                <span className={`flex-1 text-sm ${isOpen ? 'text-blue-700 font-bold' : 'text-gray-600 group-hover:text-blue-600'} transition-colors`}>حجم {size}</span>
-                                <span className="bg-gray-100 text-gray-700 text-xs font-bold px-2.5 py-0.5 rounded-full group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">{sData.count}</span>
-                              </button>
-                              <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-96 opacity-100 mt-1.5' : 'max-h-0 opacity-0'}`}>
-                                {Object.keys(sData.subLocs).length > 0 && (
-                                  <div className="mr-5 pr-3 border-r-2 border-gray-100 space-y-1">
-                                    {Object.entries(sData.subLocs).sort((a, b) => b[1].count - a[1].count).map(([sub, s]) => (
-                                      <button key={sub} onClick={() => handleSubLocClick(sub, s.ids)} className="w-full text-right flex items-center justify-between py-1 group cursor-pointer hover:bg-blue-50 rounded px-1 transition-colors">
-                                        <span className="text-xs text-gray-500 group-hover:text-blue-700 transition-colors">└ {sub}</span>
-                                        <span className="text-xs font-bold text-gray-600 bg-gray-50 px-2 rounded group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">{s.count}</span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
+                            <tr key={item.key} className="border-b hover:bg-gray-50 transition-colors">
+                              <td className="p-2 text-gray-800 font-medium">{item.type}</td>
+                              <td className="p-2 text-gray-600">{item.size}</td>
+                              <td className="p-2 text-center">{item.inCabinet ? <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">داخل الكبينة</span> : <span className="text-gray-300">—</span>}</td>
+                              <td className="p-2 text-center text-gray-700 font-bold">{item.count}</td>
+                              <td className="p-2 text-center">
+                                <div className="inline-flex items-center gap-1 bg-gray-50 rounded-lg border border-gray-200">
+                                  <button onClick={() => handleCartDecrement(item.key)} disabled={cartCount === 0} className="w-7 h-7 flex items-center justify-center text-sm font-bold text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed">−</button>
+                                  <span className="w-8 text-center text-sm font-bold text-gray-800">{cartCount}</span>
+                                  <button onClick={() => handleCartIncrement(subLoc, item.type, item.size, item.inCabinet, item.count, item.ids, item.ids.map(id => extMap[id]?.number || ''))} disabled={cartCount >= item.count} className="w-7 h-7 flex items-center justify-center text-sm font-bold text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed">+</button>
+                                </div>
+                              </td>
+                            </tr>
                           );
                         })}
-                        {lData.cabinet.count > 0 && (
-                          <div>
-                            <button onClick={() => toggle(`${loc}|__cab__`)} className={`w-full text-right flex items-center gap-2 group cursor-pointer ${expanded.has(`${loc}|__cab__`) ? 'text-amber-700' : 'text-amber-600'} transition-colors`}>
-                              <span className={`shrink-0 text-[10px] transition-all duration-200 ${expanded.has(`${loc}|__cab__`) ? 'rotate-90 text-amber-600' : 'text-amber-300 group-hover:text-amber-500'}`}>▶</span>
-                              <span className={`flex-1 text-sm ${expanded.has(`${loc}|__cab__`) ? 'font-bold' : ''}`}>🗄️ داخل الكبائن</span>
-                              <span className="bg-amber-50 text-amber-700 text-xs font-bold px-2.5 py-0.5 rounded-full">{lData.cabinet.count}</span>
-                            </button>
-                            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${expanded.has(`${loc}|__cab__`) ? 'max-h-96 opacity-100 mt-1.5' : 'max-h-0 opacity-0'}`}>
-                              {Object.keys(lData.cabinet.subLocs).length > 0 && (
-                                <div className="mr-5 pr-3 border-r-2 border-amber-100 space-y-1">
-                                  {Object.entries(lData.cabinet.subLocs).sort((a, b) => b[1].count - a[1].count).map(([sub, s]) => (
-                                    <div key={sub}>
-                                      <button onClick={() => handleSubLocClick(sub, s.ids)} className="w-full text-right flex items-center justify-between py-1 group cursor-pointer hover:bg-amber-50 rounded px-1 transition-colors">
-                                        <span className="text-xs text-amber-600 group-hover:text-amber-800 transition-colors">└ {sub}</span>
-                                        <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 rounded group-hover:bg-amber-100 transition-colors">{s.count}</span>
-                                      </button>
-                                      {Object.entries(s.sizes || {}).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(([size, sizeData]) => (
-                                        <div key={size} className="mr-6 flex items-center gap-2 py-0.5">
-                                          <span className="text-xs text-amber-700">حجم {size}:</span>
-                                          <span className="text-xs font-bold text-amber-800">{sizeData.count}</span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                      </tbody>
+                    </table>
+                  </div>
+                  </div>
+                </div>
+                );
+              })}
             </div>
-          );
+            </div>
+          </div>
+        );
         })}
       </div>
 
@@ -923,15 +915,16 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
           </div>
           <div className="space-y-2 mb-4">
             {cartItems.map((item, i) => (
-              <div key={i} className="flex items-center justify-between bg-orange-50 rounded-lg p-3 border border-orange-100">
+              <div key={item.key} className="flex items-center justify-between bg-orange-50 rounded-lg p-3 border border-orange-100">
                 <div className="flex items-center gap-2 min-w-0">
                   <MapPin className="w-4 h-4 text-orange-500 shrink-0" />
-                  <span className="text-sm text-gray-700 truncate">{item.subLocation}</span>
+                  <span className="text-sm text-gray-700 truncate">{item.subLocation.includes(' / ') ? item.subLocation.split(' / ').slice(1).join(' / ') : item.subLocation}</span>
+                  <span className="text-xs text-gray-500">({item.type} {item.size})</span>
                   <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full shrink-0">{item.count} / {item.total}</span>
                 </div>
-                <button onClick={() => removeCartItem(i)} className="text-red-400 hover:text-red-600 transition-colors p-1 shrink-0"><X className="w-4 h-4" /></button>
-              </div>
-            ))}
+                <button onClick={() => removeCartItem(item.key)} className="text-red-400 hover:text-red-600 transition-colors p-1 shrink-0"><X className="w-4 h-4" /></button>
+          </div>
+        ))}
           </div>
           <div className="border-t border-orange-100 pt-4">
             <button onClick={() => setShowTransferModal(true)} className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm">
@@ -1015,34 +1008,6 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
         )}
       </div>
 
-      {/* Count Picker Modal */}
-      {showCountModal && countModalData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-            <div className="bg-gradient-to-l from-purple-700 to-purple-600 text-white p-4 flex justify-between items-center">
-              <h3 className="font-bold text-lg flex items-center gap-2"><Target className="w-5 h-5" /> اختيار العدد</h3>
-              <button onClick={() => { setShowCountModal(false); setCountModalData(null); }} className="text-white/70 hover:text-white text-xl leading-none">&times;</button>
-            </div>
-            <div className="p-5 space-y-4">
-              <div className="flex items-center gap-2 p-3 bg-purple-50 rounded-lg border border-purple-100">
-                <MapPin className="w-4 h-4 text-purple-600 shrink-0" />
-                <span className="text-sm font-bold text-gray-700">{countModalData.subLocation}</span>
-                <span className="text-xs text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full mr-auto">{countModalData.total} متاح</span>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">عدد الطفايات المطلوب نقلها:</label>
-                <input type="number" min={1} max={countModalData.total} value={countModalValue} onChange={e => setCountModalValue(Math.min(countModalData.total, Math.max(1, Number(e.target.value) || 1)))} className="w-full border border-gray-300 rounded-lg p-3 text-center text-lg font-bold focus:ring-2 focus:ring-purple-500 outline-none" />
-                <p className="text-xs text-gray-400 mt-1 text-center">من 1 إلى {countModalData.total}</p>
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button onClick={confirmCount} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-lg font-bold transition-colors">إضافة إلى سلة النقل</button>
-                <button onClick={() => { setShowCountModal(false); setCountModalData(null); }} className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2.5 px-6 rounded-lg transition-colors">إلغاء</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Receipt Modal */}
       {receiptData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -1092,42 +1057,41 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
             <div className="text-center mb-6 border-b-2 border-gray-200 pb-4">
               <h1 className="text-xl font-bold text-gray-800">تقرير شامل عن الطفايات</h1>
               <p className="text-sm text-gray-500 mt-1">آخر تحديث: {new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-              <p className="text-xs text-gray-400 mt-1">الفلتر: {filterMainLocation === 'All' ? 'جميع المواقع' : filterMainLocation}{filterSubLocation !== 'All' ? ` / ${filterSubLocation}` : ''}</p>
+              <p className="text-xs text-gray-400 mt-1">الفلتر: {filterMainLocation === 'All' ? 'جميع المواقع' : filterMainLocation}{filterSubLocation !== 'All' ? ` / ${filterSubLocation}` : ''}{filterType !== 'All' ? ` — ${typeLabel(filterType)}` : ''}{filterSize !== 'All' ? ` / ${filterSize}` : ''}</p>
             </div>
             {Object.keys(report).length === 0 ? (
               <p className="text-gray-400 text-center py-8">لا توجد بيانات تطابق الفلتر</p>
             ) : (
               <div className="space-y-6">
-                {Object.entries(report).map(([type, tData]) => {
-                  const meta = typeMeta[type] || typeMeta['بودرة'];
-                  return (
-                    <div key={type} className="border rounded-lg overflow-hidden">
-                      <div className={`bg-gradient-to-l ${meta.color} px-4 py-2 flex justify-between items-center`}>
-                        <h3 className="text-white font-bold flex items-center gap-2">{meta.icon} {type}</h3>
-                        <span className="bg-white/25 text-white text-sm font-bold px-3 py-0.5 rounded-full">{tData.total}</span>
-                      </div>
-                      <div className="divide-y">
-                        {Object.entries(tData.locations).map(([loc, lData]) => (
-                          <div key={loc} className="px-4 py-2">
-                            <p className="font-bold text-gray-700 text-sm mb-1">{loc} — {lData.total}</p>
-                            <div className="mr-4 space-y-0.5">
-                              {Object.entries(lData.sizes).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(([size, sData]) => (
-                                <div key={size} className="text-xs text-gray-600 flex items-center gap-2">
-                                  <span>حجم {size}:</span>
-                                  <span className="font-bold">{sData.count}</span>
-                                  {Object.keys(sData.subLocs).length > 0 && (
-                                    <span className="text-gray-400">— {Object.entries(sData.subLocs).map(([sub, s]) => `${sub} (${s.count})`).join('، ')}</span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                {Object.entries(report).map(([mainLoc, lData]) => (
+                  <div key={mainLoc} className="border rounded-lg overflow-hidden">
+                    <div className="bg-gradient-to-l from-gray-700 to-gray-600 px-4 py-2 flex justify-between items-center">
+                      <h3 className="text-white font-bold flex items-center gap-2 text-sm"><MapPin className="w-4 h-4" /> {mainLoc}</h3>
+                      <span className="bg-white/25 text-white text-sm font-bold px-3 py-0.5 rounded-full">{lData.total}</span>
                     </div>
-                  );
-                })}
-              </div>
+                    <div className="divide-y">
+                      {Object.entries(lData.subLocs).sort((a, b) => a[0].localeCompare(b[0], 'ar')).map(([subLoc, sData]) => (
+                        <div key={subLoc} className="px-4 py-3">
+                          <p className="font-bold text-gray-700 text-sm mb-2">{subLoc.includes(' / ') ? subLoc.split(' / ').slice(1).join(' / ') : subLoc} — {sData.total}</p>
+                          <table className="w-full text-xs">
+                            <thead><tr className="border-b text-gray-500"><th className="p-1.5 text-right">النوع</th><th className="p-1.5 text-right">الحجم</th><th className="p-1.5 text-center">الكبينة</th><th className="p-1.5 text-center">العدد</th></tr></thead>
+                            <tbody>
+                              {sData.items.sort((a, b) => a.type.localeCompare(b.type, 'ar') || parseFloat(a.size) - parseFloat(b.size)).map(item => (
+                                <tr key={item.key} className="border-b">
+                                  <td className="p-1.5 text-gray-700 font-medium">{item.type}</td>
+                                  <td className="p-1.5 text-gray-600">{item.size}</td>
+                                  <td className="p-1.5 text-center">{item.inCabinet ? <span className="text-amber-600 font-bold">نعم</span> : '—'}</td>
+                                  <td className="p-1.5 text-center font-bold text-gray-800">{item.count}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ))}
+            </div>
+          </div>
+        ))}
+      </div>
             )}
             <div className="text-center border-t-2 border-gray-200 mt-6 pt-4 text-xs text-gray-400">
               <p>الإجمالي: {filteredExts.length} طفاية</p>
@@ -1181,7 +1145,7 @@ function getSizeOptions(type) {
   if (type === 'Water' || type === 'Foam') {
     return ['6L', '9L', '12L'];
   }
-  return ['1Kg', '2Kg', '4Kg', '6Kg', '12Kg'];
+  return ['1Kg', '2Kg', '3Kg', '4Kg', '6Kg', '8Kg', '12Kg'];
 }
 
 function SizeDropdown({ value, onChange, type }) {
@@ -2241,13 +2205,12 @@ function PerformanceReport({ auditLogs, userRole, db, fbUser, appId, setAuditLog
                                 <Trash2 className="w-3 h-3 ml-1" /> حذف
                               </button>
                             )}
-                          </div>
-                        </div>
-                        <div className="text-sm text-gray-700 leading-relaxed">{log.details}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+            </div>
+          </div>
+        ))}
+      </div>
+            )}
               </div>
             );
           })}
@@ -2551,7 +2514,7 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
 // 10. إعدادات المطور
 function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, contacts, auditLogs, setAuditLogs, extinguishers, setExtinguishers, users, setUsers, db, fbUser, appId, logAction, currentUser, siteSettings, setSiteSettings, topLevelLocations }) {
   const [confirmDialog, setConfirmDialog] = useState(null); 
-  const [bulkData, setBulkData] = useState({ quantity: 10, type: 'Powder', size: '6Kg', location: topLevelLocations[0] || '' });
+  const [bulkData, setBulkData] = useState({ startNum: 1, endNum: 10, type: 'Powder', size: '6Kg', mainLocation: topLevelLocations[0] || '', subLocation: '' });
   const [siteForm, setSiteForm] = useState({ name: siteSettings?.name || '', logoUrl: siteSettings?.logoUrl || '' });
   const [siteSaved, setSiteSaved] = useState(false);
 
@@ -2607,32 +2570,27 @@ function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, co
   };
 
   const handleBulkAdd = () => {
-    const quantity = Number(bulkData.quantity);
-    if (quantity <= 0 || quantity > 500) return; 
-    
-    const maxExtNumber = extinguishers.reduce((max, ext) => {
-      const numMatch = ext.number.match(/\d+/);
-      const num = numMatch ? parseInt(numMatch[0], 10) : 0;
-      return Math.max(max, num);
-    }, 0);
+    const startNum = Number(bulkData.startNum);
+    const endNum = Number(bulkData.endNum);
+    if (startNum <= 0 || endNum < startNum || endNum - startNum > 500) return; 
 
     const d = new Date();
     const todayStr = d.toISOString().split('T')[0];
     const nextDateStr = calculateNextDate(todayStr);
     const status = calculateStatus(nextDateStr, todayStr);
 
+    const locationPath = bulkData.subLocation ? `${bulkData.mainLocation} / ${bulkData.subLocation}` : bulkData.mainLocation;
     const newExts = [];
-    for (let i = 1; i <= quantity; i++) {
-      const newNum = maxExtNumber + i;
-      const formattedNum = `EXT-${String(newNum).padStart(3, '0')}`;
-      const newId = Date.now() + i + Math.floor(Math.random() * 1000); 
+    for (let n = startNum; n <= endNum; n++) {
+      const formattedNum = `EXT-${String(n).padStart(3, '0')}`;
+      const newId = Date.now() + n + Math.floor(Math.random() * 1000); 
       
       newExts.push({
         id: newId,
         number: formattedNum,
         size: bulkData.size,
         type: bulkData.type,
-        location: bulkData.location,
+        location: locationPath,
         lastDate: todayStr,
         nextDate: nextDateStr,
         lastInspection: todayStr,
@@ -2650,7 +2608,7 @@ function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, co
        setExtinguishers(prev => [...prev, ...newExts]);
     }
     
-    logAction('إضافة جماعية', `تم إنشاء ${quantity} طفاية جديدة تلقائياً في ${bulkData.location}.`);
+    logAction('إضافة جماعية', `تم إنشاء ${endNum - startNum + 1} طفاية جديدة بأرقام EXT-${String(startNum).padStart(3, '0')} إلى EXT-${String(endNum).padStart(3, '0')} في ${locationPath}.`);
   };
 
   const qualityChecks = useMemo(() => {
@@ -2767,12 +2725,16 @@ function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, co
       <div className="bg-white rounded-xl shadow-sm border border-purple-200 p-5 overflow-hidden relative">
         <div className="absolute top-0 right-0 w-2 bg-purple-500 h-full"></div>
         <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><CopyPlus className="w-5 h-5 ml-2 text-purple-600"/> مشغل الأوامر (الإضافة الجماعية)</h3>
-        <p className="text-sm text-gray-600 mb-4">تقوم هذه الأداة بإنشاء عدد كبير من الطفايات دفعة واحدة، وستقوم بتسلسل الأرقام تلقائياً بناءً على آخر رقم موجود في النظام.</p>
+        <p className="text-sm text-gray-600 mb-4">تقوم هذه الأداة بإنشاء طفايات بنطاق أرقام محدد في موقع معين دفعة واحدة.</p>
         
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">العدد المطلوب</label>
-            <input type="number" min="1" max="100" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.quantity} onChange={e => setBulkData({...bulkData, quantity: e.target.value})} />
+            <label className="block text-xs font-bold text-gray-700 mb-1">من الرقم</label>
+            <input type="number" min="1" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.startNum} onChange={e => setBulkData({...bulkData, startNum: e.target.value})} />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1">إلى الرقم</label>
+            <input type="number" min="1" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.endNum} onChange={e => setBulkData({...bulkData, endNum: e.target.value})} />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">النوع</label>
@@ -2786,13 +2748,24 @@ function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, co
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">الموقع الأساسي</label>
-            <select className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.location} onChange={e => setBulkData({...bulkData, location: e.target.value})}>
+            <select className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.mainLocation} onChange={e => setBulkData({...bulkData, mainLocation: e.target.value, subLocation: ''})}>
               {topLevelLocations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1">الموقع الفرعي (اختياري)</label>
+            <select className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none" value={bulkData.subLocation} onChange={e => setBulkData({...bulkData, subLocation: e.target.value})}>
+              <option value="">بدون موقع فرعي</option>
+              {(locationTree.find(n => n.name === bulkData.mainLocation)?.children || []).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
             </select>
           </div>
         </div>
         <button 
-          onClick={() => setConfirmDialog({ title: 'تأكيد الإضافة الجماعية', message: `سيتم الآن إنشاء (${bulkData.quantity}) طفاية جديدة بتسلسلات تلقائية في "${bulkData.location}". هل أنت متأكد؟`, action: handleBulkAdd, isDestructive: false })} 
+          onClick={() => {
+            const qty = Number(bulkData.endNum) - Number(bulkData.startNum) + 1;
+            const locStr = bulkData.subLocation ? `${bulkData.mainLocation} / ${bulkData.subLocation}` : bulkData.mainLocation;
+            setConfirmDialog({ title: 'تأكيد الإضافة الجماعية', message: `سيتم الآن إنشاء (${qty}) طفاية جديدة بأرقام EXT-${String(bulkData.startNum).padStart(3, '0')} إلى EXT-${String(bulkData.endNum).padStart(3, '0')} في "${locStr}". هل أنت متأكد؟`, action: handleBulkAdd, isDestructive: false });
+          }} 
           className="w-full md:w-auto bg-purple-600 hover:bg-purple-700 text-white font-bold px-6 py-2.5 rounded-lg transition-colors shadow-md"
         >
           تنفيذ الإضافة الجماعية الآن
