@@ -1,5 +1,5 @@
 ﻿import { getMessaging, isSupported, getToken, onMessage, deleteToken } from 'firebase/messaging';
-import { doc, getDoc, setDoc, updateDoc, deleteField } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, deleteField } from 'firebase/firestore';
 
 const VAPID_KEY = import.meta.env.VITE_FCM_VAPID_KEY || '';
 
@@ -132,6 +132,10 @@ export const createNotification = async (db, appId, { title, body, url, kind, se
   } catch (err) {
     return { id, skipped: false, sent: 0, failed: tokens.length, total: tokens.length, error: String(err) };
   }
+};
+
+export const deleteNotification = async (db, appId, id) => {
+  try { await deleteDoc(notifDoc(db, appId, id)); } catch { /* ignore */ }
 };
 
 export const setNotificationLike = async (db, appId, id, user, liked) => {

@@ -15,7 +15,7 @@ import { initializeFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, wr
 import HierarchicalLocationPicker from './HierarchicalLocationPicker';
 import LocationTreeManager from './LocationTreeManager';
 import { migrateIfNeeded, getAllLeafPaths, getAllNodePaths, deserializeTree, serializeTree, flatToTree, addNode, getNodePath, findNodeById } from './locationUtils';
-import { isNotifSupported, subscribeForeground, getExistingToken, requestNotifToken, registerToken, unregisterToken, createNotification, setNotificationLike, playNotifSound } from './notifications';
+import { isNotifSupported, subscribeForeground, getExistingToken, requestNotifToken, registerToken, unregisterToken, createNotification, setNotificationLike, deleteNotification, playNotifSound } from './notifications';
 
 let app, auth, db, appId;
 
@@ -737,6 +737,12 @@ export default function App() {
     setNotifBusy(false);
   };
 
+  const handleDeleteNotif = async (notifId) => {
+    if (!db || !appId || !notifId) return;
+    setNotifications(prev => prev.filter(n => n.id !== notifId));
+    await deleteNotification(db, appId, notifId);
+  };
+
   return (
     <div className="bg-gray-50 flex flex-col md:flex-row font-sans text-right min-h-screen md:h-screen md:overflow-hidden" dir="rtl" style={wcoVisible ? { paddingTop: 'env(titlebar-area-height, 32px)' } : undefined}>
       {wcoVisible && (
@@ -842,7 +848,7 @@ export default function App() {
           {currentView === 'performance' && <PerformanceReport auditLogs={auditLogs} userRole={currentUser.role} db={db} fbUser={fbUser} appId={appId} setAuditLogs={setAuditLogs} />}
           {currentView === 'inspectionPolicy' && <InspectionPolicyCenter topLevelLocations={topLevelLocations} inspectionPolicies={inspectionPolicies} setInspectionPolicies={setInspectionPolicies} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
           {currentView === 'archive' && <ArchiveCenter extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
-          {currentView === 'notifications' && <NotificationsPage notifSupported={notifSupported} notifToken={notifToken} notifBusy={notifBusy} notifMsg={notifMsg} onEnableNotif={handleEnableNotif} onDisableNotif={handleDisableNotif} notifications={notifications} db={db} appId={appId} user={currentUser} canSend={(currentUser.role === 'developer' || currentUser.role === 'father' || currentUser.role === 'admin')} customNotif={customNotif} setCustomNotif={setCustomNotif} customNotifResult={customNotifResult} onCustomNotifSend={handleCustomNotifSend} autoNotifs={siteSettings.autoNotifs !== false} onToggleAutoNotifs={(v) => handleSaveSiteSettings({ ...siteSettings, autoNotifs: v })} />}
+          {currentView === 'notifications' && <NotificationsPage notifSupported={notifSupported} notifToken={notifToken} notifBusy={notifBusy} notifMsg={notifMsg} onEnableNotif={handleEnableNotif} onDisableNotif={handleDisableNotif} notifications={notifications} db={db} appId={appId} user={currentUser} canSend customNotif={customNotif} setCustomNotif={setCustomNotif} customNotifResult={customNotifResult} onCustomNotifSend={handleCustomNotifSend} onDeleteNotif={handleDeleteNotif} autoNotifs={siteSettings.autoNotifs !== false} onToggleAutoNotifs={(v) => handleSaveSiteSettings({ ...siteSettings, autoNotifs: v })} />}
           {currentView === 'settings' && <DeveloperSettings locationTree={locationTree} setLocationTree={handleSaveLocations} onRenameLocation={handleLocationRename} contacts={contacts} auditLogs={auditLogs} setAuditLogs={setAuditLogs} extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} siteSettings={siteSettings} setSiteSettings={handleSaveSiteSettings} topLevelLocations={topLevelLocations} />}
         </main>
       </div>
@@ -871,7 +877,7 @@ function SidebarBtn({ icon: Icon, label, active, onClick }) {
   );
 }
 
-function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, onEnableNotif, onDisableNotif, notifications, db, appId, user, canSend, customNotif, setCustomNotif, customNotifResult, onCustomNotifSend, autoNotifs, onToggleAutoNotifs }) {
+function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, onEnableNotif, onDisableNotif, notifications, db, appId, user, canSend, customNotif, setCustomNotif, customNotifResult, onCustomNotifSend, onDeleteNotif, autoNotifs, onToggleAutoNotifs }) {
   const [popup, setPopup] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -886,6 +892,15 @@ function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, on
   const toggleLike = async (n) => {
     if (!db || !appId || !user || !n) return;
     await setNotificationLike(db, appId, n.id, user, !isLiked(n));
+  };
+
+  const canDelete = (n) => Boolean(user && (user.role === 'developer' || n.senderId === user.id));
+
+  const handleDelete = (n) => {
+    if (!canDelete(n)) return;
+    if (!window.confirm('حذف هذا الإشعار نهائياً؟')) return;
+    if (popup && popup.id === n.id) setPopup(null);
+    onDeleteNotif(n.id);
   };
 
   return (
@@ -997,6 +1012,11 @@ function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, on
                   <button onClick={() => setPopup(n)} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-gray-50 border border-gray-200 text-gray-500 hover:text-gray-700">
                     <Users className="w-3.5 h-3.5" /> من أعجب ولم يعجب
                   </button>
+                  {canDelete(n) && (
+                    <button onClick={() => handleDelete(n)} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-gray-50 border border-gray-200 text-red-500 hover:text-red-700 hover:bg-red-50 mr-auto">
+                      <Trash2 className="w-3.5 h-3.5" /> حذف
+                    </button>
+                  )}
                 </div>
               </div>
             );
