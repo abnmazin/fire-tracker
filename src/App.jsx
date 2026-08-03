@@ -4,7 +4,7 @@ import {
   Settings, LayoutDashboard, FireExtinguisher, Search, Users,
   CheckCircle, XCircle, ClipboardList, ArrowRightLeft, Archive, Edit, Filter,
   UserPlus, Trash2, Phone, Menu, X, MapPin, DatabaseBackup, Loader2, Calendar,
-  CopyPlus, Target, Activity, History, WifiOff, Printer, Download
+  CopyPlus, Target, Activity, History, WifiOff, Printer, Download, FileSpreadsheet
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -261,6 +261,51 @@ const dToday = formatDate(today);
 const d1MonthAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 1, today.getDate()));
 const d8MonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 8, today.getDate())); 
 
+// عرض موحد للتاريخ بصيغة أرقام يوم-شهر-سنة (مثال: 03-08-2026)
+const pad2 = (n) => String(n).padStart(2, '0');
+const formatDisplayDate = (dateStr) => {
+  if (!dateStr) return '';
+  const s = String(dateStr).trim();
+  if (/^\d{2}-\d{2}-\d{4}$/.test(s)) {
+    const [dd, mm, yyyy] = s.split('-');
+    if (!isNaN(Number(yyyy + mm + dd))) return s;
+  }
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  return `${pad2(d.getDate())}-${pad2(d.getMonth() + 1)}-${d.getFullYear()}`;
+};
+const formatDisplayDateTime = (dateStr) => {
+  if (!dateStr) return '';
+  const s = String(dateStr).trim();
+  if (/^\d{2}-\d{2}-\d{4}\s\d{2}:\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  return `${formatDisplayDate(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
+// تحويل أي صيغة يوم مخزنة (مثل 3/8/2026) إلى dd-mm-yyyy
+const normalizeDayStr = (str) => {
+  if (!str) return str;
+  const clean = String(str).split(/[،,]/)[0].trim();
+  const parts = clean.split('/');
+  if (parts.length === 3) {
+    const d = Number(parts[0]), m = Number(parts[1]), y = Number(parts[2]);
+    if (d && m && y && y > 1000) return `${pad2(d)}-${pad2(m)}-${y}`;
+  }
+  return formatDisplayDate(clean);
+};
+// عرض تاريخ سجلات العمليات (يدعم الصيغة القديمة والجديدة)
+const formatLogDate = (str) => {
+  if (!str) return '';
+  const s = String(str).trim();
+  if (/^\d{2}-\d{2}-\d{4}(\s\d{2}:\d{2})?$/.test(s)) return s;
+  const parts = s.split(/[،,]/);
+  const day = normalizeDayStr(parts[0]);
+  if (!day) return s;
+  const tm = parts[1] ? parts[1].trim().match(/(\d{1,2}):(\d{2})/) : null;
+  if (tm) return `${day} ${pad2(Number(tm[1]))}:${tm[2]}`;
+  return day;
+};
+
 const initialExtinguishers = [
   { id: 1, number: 'EXT-001', size: '6Kg', type: 'Powder', location: 'البصرة / مسجد الموسوي / المطبخ', lastDate: d1MonthAgo, nextDate: calculateNextDate(d1MonthAgo), lastInspection: dToday, status: 'صالحة', notes: 'يوجد خدش بسيط', inCabinet: true, archived: false },
   { id: 2, number: 'EXT-002', size: '12Kg', type: 'CO2', location: 'البصرة / موكب كربلاء', lastDate: d8MonthsAgo, nextDate: calculateNextDate(d8MonthsAgo), lastInspection: dToday, status: 'تحتاج صيانة', notes: 'منتهية الصلاحية', inCabinet: false, archived: false },
@@ -276,7 +321,9 @@ export default function App() {
     try {
       const v = new URLSearchParams(window.location.search).get('view');
       const valid = ['dashboard', 'list', 'report', 'performance', 'inspectionPolicy', 'archive', 'settings', 'users'];
-      return valid.includes(v) ? v : 'dashboard';
+      if (valid.includes(v)) return v;
+      const saved = localStorage.getItem('ft_view');
+      return valid.includes(saved) ? saved : 'dashboard';
     } catch (e) { return 'dashboard'; }
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -458,8 +505,8 @@ export default function App() {
 
   const logAction = (action, details) => {
     const d = new Date();
-    const dateString = d.toLocaleString('ar-EG');
-    const dayString = d.toLocaleDateString('ar-EG', { year: 'numeric', month: 'numeric', day: 'numeric' });
+    const dateString = formatDisplayDateTime(d);
+    const dayString = formatDisplayDate(d);
     
     const newLog = { 
       id: Date.now(), 
@@ -539,6 +586,12 @@ export default function App() {
   const navigateTo = (view) => {
     setCurrentView(view);
     setIsMobileMenuOpen(false);
+    try {
+      localStorage.setItem('ft_view', view);
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', view);
+      window.history.replaceState(null, '', url.toString());
+    } catch (e) {}
   };
 
   if (!currentUser) return <LoginScreen onLogin={setCurrentUser} users={users} siteSettings={siteSettings} />;
@@ -828,6 +881,175 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
   );
 }
 
+// ===== XLSX (OOXML) generator — no external libraries =====
+
+const xlsxColName = (i) => {
+  let s = '';
+  let n = i;
+  while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+};
+
+const xmlEsc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const plainNumber = (n) => {
+  const m = String(n ?? '').match(/(\d+)/);
+  return m ? String(parseInt(m[1], 10)) : String(n ?? '');
+};
+
+function crc32(buf) {
+  let table = crc32.table;
+  if (!table) {
+    table = crc32.table = new Int32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c;
+    }
+  }
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = table[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+function buildZip(entries) {
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  const enc = new TextEncoder();
+  entries.forEach(({ name, data }) => {
+    const nameBytes = enc.encode(name);
+    const crc = crc32(data);
+    const local = new Uint8Array(30 + nameBytes.length + data.length);
+    const dv = new DataView(local.buffer);
+    dv.setUint32(0, 0x04034b50, true);
+    dv.setUint16(4, 20, true);
+    dv.setUint16(6, 0x0800, true);
+    dv.setUint16(8, 0, true);
+    dv.setUint16(10, 0, true);
+    dv.setUint16(12, 0, true);
+    dv.setUint32(14, crc, true);
+    dv.setUint32(18, data.length, true);
+    dv.setUint32(22, data.length, true);
+    dv.setUint16(26, nameBytes.length, true);
+    dv.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+    local.set(data, 30 + nameBytes.length);
+    chunks.push(local);
+    const c = new Uint8Array(46 + nameBytes.length);
+    const cdv = new DataView(c.buffer);
+    cdv.setUint32(0, 0x02014b50, true);
+    cdv.setUint16(4, 20, true);
+    cdv.setUint16(6, 20, true);
+    cdv.setUint16(8, 0x0800, true);
+    cdv.setUint16(10, 0, true);
+    cdv.setUint16(12, 0, true);
+    cdv.setUint16(14, 0, true);
+    cdv.setUint32(16, crc, true);
+    cdv.setUint32(20, data.length, true);
+    cdv.setUint32(24, data.length, true);
+    cdv.setUint16(28, nameBytes.length, true);
+    cdv.setUint16(30, 0, true);
+    cdv.setUint16(32, 0, true);
+    cdv.setUint16(34, 0, true);
+    cdv.setUint16(36, 0, true);
+    cdv.setUint32(38, 0, true);
+    cdv.setUint32(42, offset, true);
+    c.set(nameBytes, 46);
+    central.push(c);
+    offset += local.length;
+  });
+  const cdSize = central.reduce((s, c) => s + c.length, 0);
+  const eocd = new Uint8Array(22);
+  const edv = new DataView(eocd.buffer);
+  edv.setUint32(0, 0x06054b50, true);
+  edv.setUint16(8, entries.length, true);
+  edv.setUint16(10, entries.length, true);
+  edv.setUint32(12, cdSize, true);
+  edv.setUint32(16, offset, true);
+  const total = chunks.reduce((s, c) => s + c.length, 0) + cdSize + eocd.length;
+  const out = new Uint8Array(total);
+  let p = 0;
+  chunks.forEach(c => { out.set(c, p); p += c.length; });
+  central.forEach(c => { out.set(c, p); p += c.length; });
+  out.set(eocd, p);
+  return out;
+}
+
+function xlsxSheetXml({ title, headers, rows, widths, totalRow }) {
+  const ncols = headers.length;
+  const lastCol = xlsxColName(ncols);
+  let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView rightToLeft="1" workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="15"/>';
+  if (widths) xml += '<cols>' + widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('') + '</cols>';
+  xml += '<sheetData>';
+  xml += `<row r="1"><c r="A1" s="2" t="inlineStr"><is><t>${xmlEsc(title)}</t></is></c></row>`;
+  xml += '<row r="2"/>';
+  xml += '<row r="3">';
+  headers.forEach((h, i) => { xml += `<c r="${xlsxColName(i + 1)}3" s="1" t="inlineStr"><is><t>${xmlEsc(h)}</t></is></c>`; });
+  xml += '</row>';
+  let r = 4;
+  rows.forEach((row, idx) => {
+    const s = idx % 2 === 1 ? '5' : '4';
+    xml += `<row r="${r}">`;
+    row.forEach((val, i) => {
+      const ref = xlsxColName(i + 1) + r;
+      if (typeof val === 'number') xml += `<c r="${ref}" s="${s}"><v>${val}</v></c>`;
+      else if (val === '' || val == null) xml += `<c r="${ref}"/>`;
+      else xml += `<c r="${ref}" s="${s}" t="inlineStr"><is><t>${xmlEsc(val)}</t></is></c>`;
+    });
+    xml += '</row>';
+    r++;
+  });
+  if (totalRow) {
+    xml += `<row r="${r}">`;
+    totalRow.forEach((val, i) => {
+      const ref = xlsxColName(i + 1) + r;
+      if (typeof val === 'number') xml += `<c r="${ref}" s="6"><v>${val}</v></c>`;
+      else if (val === '' || val == null) xml += `<c r="${ref}"/>`;
+      else xml += `<c r="${ref}" s="6" t="inlineStr"><is><t>${xmlEsc(val)}</t></is></c>`;
+    });
+    xml += '</row>';
+  }
+  xml += '</sheetData>';
+  xml += `<mergeCells count="1"><mergeCell ref="A1:${lastCol}1"/></mergeCells>`;
+  xml += '<pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/>';
+  xml += '</worksheet>';
+  return xml;
+}
+
+function buildXlsxBlob({ sheets, summaryTitle, summaryHeaders, summaryRows, nonWorking }) {
+  const usedNames = new Set();
+  const sanitize = (n) => {
+    let s = String(n).replace(/[\\\/\?\*\[\]:]/g, '-').slice(0, 31);
+    if (usedNames.has(s)) { let i = 2; while (usedNames.has(s.slice(0, 27) + '-' + i)) i++; s = s.slice(0, 27) + '-' + i; }
+    usedNames.add(s);
+    return s;
+  };
+  const allSheets = sheets.map(sh => ({ name: sanitize(sh.name), xml: xlsxSheetXml(sh) }));
+  allSheets.push({ name: 'الملخص التنفيذي', xml: xlsxSheetXml({ title: summaryTitle, headers: summaryHeaders, rows: summaryRows, widths: [50, 10] }) });
+  if (nonWorking && nonWorking.rows.length > 0) {
+    allSheets.push({ name: 'غير الصالحة للعمل', xml: xlsxSheetXml({ title: nonWorking.title, headers: nonWorking.headers, rows: nonWorking.rows, widths: [4, 26, 12, 10, 10, 22] }) });
+  }
+  const enc = new TextEncoder();
+  const entries = [];
+  let ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>';
+  allSheets.forEach((s, i) => { ct += `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`; });
+  ct += '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>';
+  entries.push({ name: '[Content_Types].xml', data: enc.encode(ct) });
+  entries.push({ name: '_rels/.rels', data: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>') });
+  let wb = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>';
+  allSheets.forEach((s, i) => { wb += `<sheet name="${xmlEsc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`; });
+  wb += '</sheets></workbook>';
+  entries.push({ name: 'xl/workbook.xml', data: enc.encode(wb) });
+  let wbr = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">';
+  allSheets.forEach((s, i) => { wbr += `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`; });
+  wbr += '<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>';
+  entries.push({ name: 'xl/_rels/workbook.xml.rels', data: enc.encode(wbr) });
+  entries.push({ name: 'xl/styles.xml', data: enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="13"/><name val="Calibri"/></font></fonts><fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF991B1B"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF9FAFB"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFDF3CD"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD1D5DB"/></left><right style="thin"><color rgb="FFD1D5DB"/></right><top style="thin"><color rgb="FFD1D5DB"/></top><bottom style="thin"><color rgb="FFD1D5DB"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="7"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf></cellXfs></styleSheet>') });
+  allSheets.forEach((s, i) => { entries.push({ name: `xl/worksheets/sheet${i + 1}.xml`, data: enc.encode(s.xml) }); });
+  return new Blob([buildZip(entries)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
 function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQuickAddLocation, db, fbUser, appId, logAction, auditLogs, setAuditLogs }) {
   const [filterMainLocation, setFilterMainLocation] = useState('All');
   const [filterSubLocation, setFilterSubLocation] = useState('All');
@@ -838,8 +1060,13 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
   const [cartItems, setCartItems] = useState([]);
   const [cartTargetLocation, setCartTargetLocation] = useState('');
   const [showTransferModal, setShowTransferModal] = useState(false);
-  const [expanded, setExpanded] = useState(new Set());
-  const [expandedSubs, setExpandedSubs] = useState(new Set());
+  const [showExportSettings, setShowExportSettings] = useState(false);
+  const [exportOptions, setExportOptions] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('ft_exportSettings') || 'null');
+      return { ...{ showStatus: false, showLastInspection: false, showMaintenanceDate: false, showExpiryDate: true, showNumbers: true, showNotes: true, showCabinet: false, showTransferLogs: false, showSubLocationSheets: false }, ...(saved || {}) };
+    } catch (e) { return { showStatus: false, showLastInspection: false, showMaintenanceDate: false, showExpiryDate: true, showNumbers: true, showNotes: true, showCabinet: false, showTransferLogs: false, showSubLocationSheets: false }; }
+  });
 
   const mainLocationNames = useMemo(() => locationTree.map(n => n.name).sort((a, b) => a.localeCompare(b, 'ar')), [locationTree]);
   const subLocationOptions = useMemo(() => {
@@ -925,10 +1152,6 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
 
   const removeCartItem = (key) => setCartItems(prev => prev.filter(i => i.key !== key));
 
-  const toggleMain = (key) => setExpanded(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
-
-  const toggleSub = (mainLoc, subLoc) => { const key = `${mainLoc}||${subLoc}`; setExpandedSubs(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; }); };
-
   const handleCartTransfer = () => {
     if (cartItems.length === 0 || !cartTargetLocation) return;
     const allIds = cartItems.flatMap(item => item.extIds);
@@ -945,7 +1168,7 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
     logAction('نقل', JSON.stringify({ ids: allIds, numbers: extList.map(e => e.number), fromLocation, toLocation: cartTargetLocation, count: allIds.length }));
     setReceiptData({
       receiptId: `TRF-${String(Date.now()).slice(-5)}`,
-      date: new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'numeric', day: 'numeric' }),
+      date: formatDisplayDate(new Date()),
       count: allIds.length,
       numbers: extList.map(e => e.number).join('، '),
       from: fromLocation,
@@ -959,12 +1182,169 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
   const closeReceipt = () => setReceiptData(null);
   const totalCartCount = cartItems.reduce((sum, item) => sum + item.count, 0);
 
+  const workingCount = filteredExts.filter(e => e.status !== 'تحتاج صيانة').length;
+  const nonWorkingCount = filteredExts.filter(e => e.status === 'تحتاج صيانة').length;
+  const filteredTotal = filteredExts.length;
+
+  const buildInventoryRows = (lData) => {
+    const rows = [];
+    Object.entries(lData.subLocs).forEach(([subLoc, sData]) => {
+      const scope = subLoc.includes(' / ') ? subLoc.split(' / ').slice(1).join(' / ') : '(الموقع الأساسي)';
+      sData.items.sort((a, b) => a.type.localeCompare(b.type, 'ar') || parseFloat(a.size) - parseFloat(b.size)).forEach(item => {
+        const extList = item.ids.map(id => extMap[id]).filter(Boolean);
+        const uniq = (arr) => [...new Set(arr.filter(v => v != null && v !== ''))];
+        const numbers = extList.map(e => plainNumber(e.number)).join('، ');
+        const notes = extList.map(e => e.notes).filter(Boolean);
+        rows.push({
+          scope, type: item.type, size: item.size, inCabinet: item.inCabinet, count: item.count, item,
+          numbers: numbers || '—',
+          notes: notes.length ? [...new Set(notes)].join('؛ ') : '—',
+          statuses: uniq(extList.map(e => e.status)).join('، ') || '—',
+          lastInspections: uniq(extList.map(e => formatDisplayDate(e.lastInspection || e.lastDate))).join('، ') || '—',
+          maintenanceDates: uniq(extList.map(e => formatDisplayDate(e.lastDate))).join('، ') || '—',
+          expiryDates: uniq(extList.map(e => formatDisplayDate(e.nextDate))).join('، ') || '—',
+          cabinet: item.inCabinet ? 'كبينة' : '-',
+        });
+      });
+    });
+    return rows;
+  };
+
+  const updateExportOption = (key) => {
+    const next = { ...exportOptions, [key]: !exportOptions[key] };
+    setExportOptions(next);
+    try { localStorage.setItem('ft_exportSettings', JSON.stringify(next)); } catch (e) {}
+  };
+
+  const buildColumns = () => {
+    const cols = [
+      { key: 'seq', label: 'ت', width: 4 },
+      { key: 'location', label: 'الموقع', width: 26 },
+      { key: 'type', label: 'النوع', width: 12 },
+      { key: 'size', label: 'الحجم', width: 10 },
+      { key: 'count', label: 'العدد', width: 8 },
+    ];
+    const optional = [
+      { key: 'status', label: 'الحالة', width: 12, on: exportOptions.showStatus, val: r => r.statuses },
+      { key: 'numbers', label: 'الأرقام', width: 20, on: exportOptions.showNumbers, val: r => r.numbers },
+      { key: 'lastInspection', label: 'آخر فحص يومي', width: 14, on: exportOptions.showLastInspection, val: r => r.lastInspections },
+      { key: 'maintenance', label: 'تاريخ الصيانة', width: 14, on: exportOptions.showMaintenanceDate, val: r => r.maintenanceDates },
+      { key: 'expiry', label: 'تاريخ الانتهاء', width: 14, on: exportOptions.showExpiryDate, val: r => r.expiryDates },
+      { key: 'cabinet', label: 'الكبينة', width: 10, on: exportOptions.showCabinet, val: r => r.cabinet },
+      { key: 'notes', label: 'ملاحظات', width: 26, on: exportOptions.showNotes, val: r => r.notes },
+    ];
+    return cols.concat(optional.filter(c => c.on));
+  };
+
+  const doExport = () => {
+    const cols = buildColumns();
+    const headers = cols.map(c => c.label);
+    const widths = cols.map(c => c.width);
+    const countIdx = cols.findIndex(c => c.key === 'count');
+    const rowToValues = (r) => cols.map(c => {
+      switch (c.key) {
+        case 'seq': return r.seq;
+        case 'location': return r.scope;
+        case 'type': return r.type;
+        case 'size': return r.size;
+        case 'count': return r.count;
+        default: return c.val(r);
+      }
+    });
+    const labelIdx = widths.indexOf(Math.max(...widths));
+    const makeTotalRow = (total) => headers.map((_, i) => (i === labelIdx ? 'الإجمالي' : (i === countIdx ? total : '')));
+    const sheets = Object.entries(report).sort(([a], [b]) => a.localeCompare(b, 'ar')).map(([mainLoc, lData]) => {
+      const dataRows = buildInventoryRows(lData).map((r, i) => rowToValues({ ...r, seq: i + 1, scope: r.scope }));
+      const totalRow = makeTotalRow(lData.total);
+      return { name: mainLoc, title: `الجرد الشامل لطفايات الحريق - ${mainLoc}`, headers, widths, rows: dataRows, totalRow };
+    });
+    const nonWorkingRows = filteredExts.filter(e => e.status === 'تحتاج صيانة').map((e, i) => rowToValues({
+      seq: i + 1, scope: e.location, type: e.type, size: e.size, count: 1,
+      statuses: e.status, numbers: plainNumber(e.number), lastInspections: formatDisplayDate(e.lastInspection || e.lastDate),
+      maintenanceDates: formatDisplayDate(e.lastDate), expiryDates: formatDisplayDate(e.nextDate), cabinet: e.inCabinet ? 'كبينة' : '-', notes: e.notes || '—',
+    }));
+    const subSheets = [];
+    if (exportOptions.showSubLocationSheets) {
+      const byLoc = {};
+      filteredExts.forEach(e => { (byLoc[e.location] = byLoc[e.location] || []).push(e); });
+      Object.entries(byLoc).sort(([a], [b]) => a.localeCompare(b, 'ar')).forEach(([loc, list]) => {
+        const rows = list.map((e, i) => rowToValues({
+          seq: i + 1, scope: e.location, type: e.type, size: e.size, count: 1,
+          statuses: e.status, numbers: plainNumber(e.number), lastInspections: formatDisplayDate(e.lastInspection || e.lastDate),
+          maintenanceDates: formatDisplayDate(e.lastDate), expiryDates: formatDisplayDate(e.nextDate), cabinet: e.inCabinet ? 'كبينة' : '-', notes: e.notes || '—',
+        }));
+        subSheets.push({
+          name: loc,
+          title: `تفاصيل الطفايات (حسب الموقع الفرعي) - ${loc}`,
+          headers, widths, rows,
+          totalRow: makeTotalRow(list.length),
+        });
+      });
+    }
+    const transferSheets = [];
+    if (exportOptions.showTransferLogs) {
+      const logRows = [];
+      let logTotal = 0;
+      (auditLogs || []).filter(l => l.action === 'نقل').slice().reverse().forEach((l, i) => {
+        let details = {};
+        try { details = JSON.parse(l.details); } catch (e) {}
+        const toLoc = details.toLocation || '';
+        const parts = toLoc.split(' / ');
+        if (filterMainLocation !== 'All' && parts[0] !== filterMainLocation) return;
+        if (filterSubLocation !== 'All' && !toLoc.includes(filterSubLocation)) return;
+        logTotal += Number(details.count) || 0;
+        const typeSize = (details.ids || []).map(id => {
+          const ex = extinguishers.find(x => String(x.id) === String(id));
+          return ex ? `${typeLabel(ex.type)} ${ex.size}` : '';
+        }).filter(Boolean).join('، ');
+        logRows.push([
+          logRows.length + 1,
+          formatDisplayDate(l.date),
+          l.userName || '—',
+          details.fromLocation || '—',
+          toLoc || '—',
+          Number(details.count) || 0,
+          details.numbers || '—',
+          typeSize || '—',
+        ]);
+      });
+      transferSheets.push({
+        name: 'سجلات الترحيل',
+        title: `سجل عمليات الترحيل إلى ${filterMainLocation === 'All' ? 'جميع المواقع' : filterMainLocation} (${filterSubLocation !== 'All' ? filterSubLocation : 'جميع المواقع الفرعية'})`,
+        headers: ['ت', 'التاريخ', 'المستخدم', 'من', 'إلى', 'العدد', 'أرقام الطفايات', 'تفاصيل الطفايات'],
+        widths: [4, 14, 14, 26, 26, 8, 22, 22],
+        rows: logRows,
+        totalRow: makeTotalRow(logTotal),
+      });
+    }
+    const blob = buildXlsxBlob({
+      sheets: sheets.concat(subSheets).concat(transferSheets),
+      summaryTitle: 'لوحة الملخص التنفيذي (Dashboard Summary)',
+      summaryHeaders: ['البند', 'العدد'],
+      summaryRows: [
+        ['إجمالي الطفايات الصالحة', workingCount],
+        ['إجمالي الطفايات غير الصالحة للعمل', nonWorkingCount],
+        ['المجموع الكلي (حسب الفلتر)', filteredTotal],
+      ],
+      nonWorking: { title: 'الطفايات غير الصالحة للعمل (تحتاج صيانة)', headers, widths, rows: nonWorkingRows },
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `الجرد_الشامل_لطفايات_الحريق_${formatDisplayDate(new Date())}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setShowExportSettings(false);
+  };
+
   const handleUndoTransfer = (log) => {
     let details;
     try { details = JSON.parse(log.details); } catch { return; }
     if (!details || !details.ids || !details.fromLocation) return;
     const targetLocation = details.fromLocation;
-    const nowStr = new Date().toLocaleString('ar-EG');
+    const nowStr = formatDisplayDateTime(new Date());
     details.ids.forEach(id => {
       const ext = extinguishers.find(e => String(e.id) === String(id));
       if (ext) routeWrite(db, fbUser, appId, 'extinguishers', id, { ...ext, location: targetLocation });
@@ -991,8 +1371,8 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
               سلة النقل
             </button>
           )}
-          <button onClick={() => setShowPrintModal(true)} className="mr-auto flex items-center gap-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors font-bold shadow-sm">
-            <Printer className="w-4 h-4" /> طباعة التقرير
+          <button onClick={() => setShowExportSettings(true)} className="flex items-center gap-1.5 text-sm text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg transition-colors font-bold shadow-sm">
+            <FileSpreadsheet className="w-4 h-4" /> تصدير إكسل
           </button>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1017,76 +1397,64 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
 
       <div className="space-y-6">
         {Object.entries(report).map(([mainLoc, lData]) => {
-          const isOpen = expanded.has(mainLoc);
+          const rows = buildInventoryRows(lData);
           return (
           <div key={mainLoc} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <button onClick={() => toggleMain(mainLoc)} className="w-full bg-gradient-to-l from-gray-700 to-gray-600 px-4 md:px-5 py-3 flex justify-between items-center hover:opacity-90 transition-opacity cursor-pointer">
+            <div className="bg-gradient-to-l from-gray-700 to-gray-600 px-4 md:px-5 py-3 flex justify-between items-center">
               <h2 className="text-white font-bold text-sm md:text-base flex items-center gap-2">
-                <span className={`text-white/70 text-xs transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>▶</span>
-                <MapPin className="w-4 h-4" /> {mainLoc}
+                <MapPin className="w-4 h-4 shrink-0" /> الجرد الشامل لطفايات الحريق — {mainLoc}
               </h2>
-              <span className="bg-white/25 text-white text-sm font-bold px-3 py-0.5 rounded-full">{lData.total}</span>
-            </button>
-            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
-            <div className="divide-y divide-gray-50">
-              {Object.entries(lData.subLocs).sort((a, b) => a[0].localeCompare(b[0], 'ar')).map(([subLoc, sData]) => {
-                const subKey = `${mainLoc}||${subLoc}`;
-                const isSubOpen = expandedSubs.has(subKey);
-                return (
-                <div key={subLoc} className="p-3 md:p-4">
-                  <button onClick={() => toggleSub(mainLoc, subLoc)} className="w-full flex items-center gap-2 mb-1 cursor-pointer group">
-                    <span className="w-1.5 h-5 bg-gray-300 rounded-full shrink-0" />
-                    <span className={`text-gray-400 text-xs transition-transform duration-200 ${isSubOpen ? 'rotate-90' : ''}`}>▶</span>
-                    <p className="font-bold text-gray-700 text-sm group-hover:text-gray-900 transition-colors">{subLoc.includes(' / ') ? subLoc.split(' / ').slice(1).join(' / ') : subLoc}</p>
-                    <span className="text-xs text-gray-400 mr-auto">{sData.total}</span>
-                  </button>
-                  <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isSubOpen ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs md:text-sm">
-                      <thead>
-                        <tr className="border-b text-gray-500">
-                          <th className="p-2 text-right">النوع</th>
-                          <th className="p-2 text-right">الحجم</th>
-                          <th className="p-2 text-center">الكبينة</th>
-                          <th className="p-2 text-center">المتاح</th>
-                          <th className="p-2 text-center">الاختيار</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sData.items.sort((a, b) => a.type.localeCompare(b.type, 'ar') || parseFloat(a.size) - parseFloat(b.size)).map(item => {
-                          const cartCount = getCartCount(item.key);
-                          return (
-                            <tr key={item.key} className="border-b hover:bg-gray-50 transition-colors">
-                              <td className="p-2 text-gray-800 font-medium">{item.type}</td>
-                              <td className="p-2 text-gray-600">{item.size}</td>
-                              <td className="p-2 text-center">{item.inCabinet ? <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">داخل الكبينة</span> : <span className="text-gray-300">—</span>}</td>
-                              <td className="p-2 text-center text-gray-700 font-bold">{item.count}</td>
-                              <td className="p-2 text-center">
-                                <div className="inline-flex items-center gap-1 bg-gray-50 rounded-lg border border-gray-200">
-                                  <button onClick={() => handleCartDecrement(item.key)} disabled={cartCount === 0} className="w-7 h-7 flex items-center justify-center text-sm font-bold text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed">−</button>
-                                  <span className="w-8 text-center text-sm font-bold text-gray-800">{cartCount}</span>
-                                  <button onClick={() => handleCartIncrement(subLoc, item.type, item.size, item.inCabinet, item.count, item.ids, item.ids.map(id => extMap[id]?.number || ''))} disabled={cartCount >= item.count} className="w-7 h-7 flex items-center justify-center text-sm font-bold text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed">+</button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  </div>
-                </div>
-                );
-              })}
+              <span className="bg-white/25 text-white text-sm font-bold px-3 py-0.5 rounded-full whitespace-nowrap">{lData.total}</span>
             </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs md:text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-600">
+                    <th className="p-2.5 text-center w-10">ت</th>
+                    <th className="p-2.5 text-right">الموقع</th>
+                    <th className="p-2.5 text-right">النوع</th>
+                    <th className="p-2.5 text-right">الحجم</th>
+                    <th className="p-2.5 text-center">العدد</th>
+                    <th className="p-2.5 text-center">الاختيار</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {rows.map((r, i) => {
+                    const cartCount = getCartCount(`${r.scope}|${r.item.type}|${r.item.size}|${r.item.inCabinet}`);
+                    return (
+                      <tr key={i} className="hover:bg-gray-50 transition-colors">
+                        <td className="p-2.5 text-center text-gray-500">{i + 1}</td>
+                        <td className="p-2.5 text-gray-800 font-medium">{r.scope}</td>
+                        <td className="p-2.5"><span className="bg-gray-200 px-2 py-0.5 rounded text-gray-700 text-[11px] whitespace-nowrap">{r.type}</span></td>
+                        <td className="p-2.5 text-gray-600 whitespace-nowrap">{r.size}</td>
+                        <td className="p-2.5 text-center text-gray-800 font-bold">{r.count}</td>
+                        <td className="p-2.5 text-center">
+                          <div className="inline-flex items-center gap-1 bg-gray-50 rounded-lg border border-gray-200">
+                            <button onClick={() => handleCartDecrement(`${r.scope}|${r.item.type}|${r.item.size}|${r.item.inCabinet}`)} disabled={cartCount === 0} className="w-7 h-7 flex items-center justify-center text-sm font-bold text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed">−</button>
+                            <span className="w-8 text-center text-sm font-bold text-gray-800">{cartCount}</span>
+                            <button onClick={() => handleCartIncrement(r.scope, r.item.type, r.item.size, r.item.inCabinet, r.item.count, r.item.ids, r.item.ids.map(id => extMap[id]?.number || ''))} disabled={cartCount >= r.item.count} className="w-7 h-7 flex items-center justify-center text-sm font-bold text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed">+</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-gray-100 border-t-2 border-gray-300 font-bold">
+                    <td colSpan="4" className="p-2.5 text-gray-800">الإجمالي</td>
+                    <td className="p-2.5 text-center text-gray-900">{lData.total}</td>
+                    <td className="p-2.5"></td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </div>
-        );
+          );
         })}
       </div>
 
       <div className="text-center text-xs text-gray-400 border-t border-gray-200 pt-4">
-        <p>آخر تحديث — {new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+        <p>آخر تحديث — {formatDisplayDateTime(new Date())}</p>
       </div>
 
       {/* Transfer Cart */}
@@ -1175,8 +1543,8 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
                       )}
                     </div>
                     <div className="shrink-0 text-left">
-                      <div className="text-xs text-gray-400 bg-white px-2 py-1 rounded">{log.date}</div>
-                      {isUndone && log.undoDate && <div className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mt-1">تراجع: {log.undoDate}</div>}
+                      <div className="text-xs text-gray-400 bg-white px-2 py-1 rounded">{formatLogDate(log.date)}</div>
+                      {isUndone && log.undoDate && <div className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mt-1">تراجع: {formatLogDate(log.undoDate)}</div>}
                     </div>
                   </div>
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-amber-100/70">
@@ -1238,51 +1606,107 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
           <style>{`@media print { body * { visibility: hidden; } #printModalOverlay, #printModalOverlay * { visibility: visible; } #printModalOverlay { position: fixed; inset: 0; background: white; padding: 20px; overflow: visible; } .no-print { display: none !important; } #printContent { max-width: 210mm; margin: 0 auto; } }`}</style>
           <div id="printContent" className="bg-white w-full max-w-[210mm] min-h-[297mm] p-6 md:p-8 shadow-2xl mx-auto rounded-2xl md:rounded-none" style={{ boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
             <button onClick={() => { window.print(); }} className="no-print mb-4 bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2.5 rounded-lg transition-colors flex items-center gap-2 mr-auto text-sm"><Printer className="w-4 h-4" /> طباعة</button>
+            <button onClick={() => setShowExportSettings(true)} className="no-print mb-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2.5 rounded-lg transition-colors flex items-center gap-2 mr-2 text-sm"><FileSpreadsheet className="w-4 h-4" /> تصدير إكسل</button>
             <button onClick={() => setShowPrintModal(false)} className="no-print mr-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold px-4 py-2.5 rounded-lg transition-colors text-sm">إغلاق</button>
             <div className="text-center mb-6 border-b-2 border-gray-200 pb-4">
-              <h1 className="text-xl font-bold text-gray-800">تقرير شامل عن الطفايات</h1>
-              <p className="text-sm text-gray-500 mt-1">آخر تحديث: {new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+              <h1 className="text-xl font-bold text-gray-800">الجرد الشامل لطفايات الحريق</h1>
+              <p className="text-sm text-gray-500 mt-1">آخر تحديث: {formatDisplayDateTime(new Date())}</p>
               <p className="text-xs text-gray-400 mt-1">الفلتر: {filterMainLocation === 'All' ? 'جميع المواقع' : filterMainLocation}{filterSubLocation !== 'All' ? ` / ${filterSubLocation}` : ''}{filterType !== 'All' ? ` — ${typeLabel(filterType)}` : ''}{filterSize !== 'All' ? ` / ${filterSize}` : ''}</p>
             </div>
             {Object.keys(report).length === 0 ? (
               <p className="text-gray-400 text-center py-8">لا توجد بيانات تطابق الفلتر</p>
             ) : (
               <div className="space-y-6">
-                {Object.entries(report).map(([mainLoc, lData]) => (
+                {Object.entries(report).map(([mainLoc, lData]) => {
+                  const rows = buildInventoryRows(lData);
+                  return (
                   <div key={mainLoc} className="border rounded-lg overflow-hidden">
                     <div className="bg-gradient-to-l from-gray-700 to-gray-600 px-4 py-2 flex justify-between items-center">
-                      <h3 className="text-white font-bold flex items-center gap-2 text-sm"><MapPin className="w-4 h-4" /> {mainLoc}</h3>
+                      <h3 className="text-white font-bold text-sm flex items-center gap-2"><MapPin className="w-4 h-4" /> الجرد الشامل لطفايات الحريق — {mainLoc}</h3>
                       <span className="bg-white/25 text-white text-sm font-bold px-3 py-0.5 rounded-full">{lData.total}</span>
                     </div>
-                    <div className="divide-y">
-                      {Object.entries(lData.subLocs).sort((a, b) => a[0].localeCompare(b[0], 'ar')).map(([subLoc, sData]) => (
-                        <div key={subLoc} className="px-4 py-3">
-                          <p className="font-bold text-gray-700 text-sm mb-2">{subLoc.includes(' / ') ? subLoc.split(' / ').slice(1).join(' / ') : subLoc} — {sData.total}</p>
-                          <table className="w-full text-xs">
-                            <thead><tr className="border-b text-gray-500"><th className="p-1.5 text-right">النوع</th><th className="p-1.5 text-right">الحجم</th><th className="p-1.5 text-center">الكبينة</th><th className="p-1.5 text-center">العدد</th></tr></thead>
-                            <tbody>
-                              {sData.items.sort((a, b) => a.type.localeCompare(b.type, 'ar') || parseFloat(a.size) - parseFloat(b.size)).map(item => (
-                                <tr key={item.key} className="border-b">
-                                  <td className="p-1.5 text-gray-700 font-medium">{item.type}</td>
-                                  <td className="p-1.5 text-gray-600">{item.size}</td>
-                                  <td className="p-1.5 text-center">{item.inCabinet ? <span className="text-amber-600 font-bold">نعم</span> : '—'}</td>
-                                  <td className="p-1.5 text-center font-bold text-gray-800">{item.count}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ))}
+                    <table className="w-full text-xs">
+                      <thead><tr className="bg-gray-50 border-b text-gray-500"><th className="p-1.5 text-center w-8">ت</th><th className="p-1.5 text-right">الموقع</th><th className="p-1.5 text-right">النوع</th><th className="p-1.5 text-right">الحجم</th><th className="p-1.5 text-center">العدد</th><th className="p-1.5 text-right">الأرقام</th><th className="p-1.5 text-right">ملاحظات</th></tr></thead>
+                      <tbody>
+                        {rows.map((r, i) => (
+                          <tr key={i} className="border-b">
+                            <td className="p-1.5 text-center text-gray-500">{i + 1}</td>
+                            <td className="p-1.5 text-gray-800 font-medium break-words">{r.scope}</td>
+                            <td className="p-1.5"><span className="bg-gray-200 px-1.5 py-0.5 rounded text-gray-700 text-[10px]">{r.type}</span></td>
+                            <td className="p-1.5 text-gray-600">{r.size}</td>
+                            <td className="p-1.5 text-center font-bold text-gray-800">{r.count}</td>
+                            <td className="p-1.5 text-gray-500 text-[10px] font-mono break-all" dir="ltr">{r.numbers}</td>
+                            <td className="p-1.5 text-gray-500 break-words">{r.notes}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot><tr className="bg-gray-100 border-t-2 border-gray-300 font-bold"><td colSpan="4" className="p-1.5 text-gray-800">الإجمالي</td><td className="p-1.5 text-center text-gray-900">{lData.total}</td><td colSpan="2" className="p-1.5"></td></tr></tfoot>
+                    </table>
+                  </div>
+                  );
+                })}
+
+                {/* لوحة الملخص التنفيذي */}
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-gradient-to-l from-gray-800 to-gray-700 px-4 py-2">
+                    <h3 className="text-white font-bold text-sm">لوحة الملخص التنفيذي (Dashboard Summary)</h3>
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead><tr className="bg-gray-50 border-b text-gray-500"><th className="p-1.5 text-right">البند</th><th className="p-1.5 text-center">العدد</th></tr></thead>
+                    <tbody>
+                      <tr className="border-b"><td className="p-1.5 text-gray-700">إجمالي الطفايات الصالحة</td><td className="p-1.5 text-center font-bold text-gray-800">{workingCount}</td></tr>
+                      <tr className="border-b"><td className="p-1.5 text-gray-700">إجمالي الطفايات غير الصالحة للعمل</td><td className="p-1.5 text-center font-bold text-gray-800">{nonWorkingCount}</td></tr>
+                      <tr><td className="p-1.5 font-bold text-gray-900">المجموع الكلي (حسب الفلتر)</td><td className="p-1.5 text-center font-bold text-gray-900">{filteredTotal}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
             </div>
-          </div>
-        ))}
-      </div>
             )}
             <div className="text-center border-t-2 border-gray-200 mt-6 pt-4 text-xs text-gray-400">
               <p>الإجمالي: {filteredExts.length} طفاية</p>
-              <p className="mt-1">{new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              <p className="mt-1">{formatDisplayDate(new Date())}</p>
               <div className="w-40 h-0.5 bg-gray-300 mx-auto mt-3 mb-1" />
               <p>التوقيع</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Export Settings Modal */}
+      {showExportSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="bg-gradient-to-l from-emerald-700 to-emerald-600 text-white p-4 flex justify-between items-center">
+              <h3 className="font-bold text-lg flex items-center gap-2"><FileSpreadsheet className="w-5 h-5" /> إعدادات تصدير التقرير</h3>
+              <button onClick={() => setShowExportSettings(false)} className="text-white/70 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-gray-500">اختر الأعمدة التي تريد تضمينها في ملف الإكسل:</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  { key: 'showStatus', label: 'عرض حالة الطفاية' },
+                  { key: 'showLastInspection', label: 'عرض آخر فحص يومي' },
+                  { key: 'showMaintenanceDate', label: 'عرض تاريخ الصيانة' },
+                  { key: 'showExpiryDate', label: 'عرض تاريخ الانتهاء' },
+                  { key: 'showNumbers', label: 'عرض أرقام الطفايات' },
+                  { key: 'showNotes', label: 'عرض الملاحظات' },
+                  { key: 'showCabinet', label: 'عرض الكبينة' },
+                  { key: 'showTransferLogs', label: 'عرض سجلات الترحيل (صفحة جديدة)' },
+                  { key: 'showSubLocationSheets', label: 'عرض صفحة لكل موقع فرعي' },
+                ].map(opt => (
+                  <label key={opt.key} className="flex items-center gap-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg px-3 py-2.5 cursor-pointer transition-colors">
+                    <input type="checkbox" checked={exportOptions[opt.key]} onChange={() => updateExportOption(opt.key)} className="w-4 h-4 text-emerald-600 rounded cursor-pointer" />
+                    <span className="text-sm font-medium text-gray-700 select-none">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="text-[11px] text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg p-2.5">
+                الأعمدة الأساسية (ت | الموقع | النوع | الحجم | العدد) تظهر دائماً في التقرير.
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button onClick={doExport} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"><Download className="w-4 h-4" /> تصدير الآن</button>
+                <button onClick={() => setShowExportSettings(false)} className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2.5 px-6 rounded-lg transition-colors">إلغاء</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1510,13 +1934,21 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
       return String(a.number).localeCompare(String(b.number), undefined, { numeric: true, sensitivity: 'base' });
     });
 
-  const handleAddExtinguisher = (newExt) => {
-    const newId = activeExtinguishers.length ? Math.max(...activeExtinguishers.map(e=>Number(e.id))) + 1 : 1;
-    const extWithDates = { ...newExt, id: newId, nextDate: calculateNextDate(newExt.lastDate), lastInspection: newExt.lastDate, status: calculateStatus(calculateNextDate(newExt.lastDate), newExt.lastDate), archived: false };
-    setExtinguishers(prev => [...prev, extWithDates]);
-    routeWrite(db, fbUser, appId, 'extinguishers', newId, extWithDates);
+  const handleAddExtinguisher = (newExtOrList) => {
+    const arr = Array.isArray(newExtOrList) ? newExtOrList : [newExtOrList];
+    const baseId = activeExtinguishers.length ? Math.max(...activeExtinguishers.map(e=>Number(e.id))) + 1 : 1;
+    const created = arr.map((newExt, i) => {
+      const newId = baseId + i;
+      const extWithDates = { ...newExt, id: newId, nextDate: calculateNextDate(newExt.lastDate), lastInspection: newExt.lastDate, status: calculateStatus(calculateNextDate(newExt.lastDate), newExt.lastDate), archived: false };
+      return extWithDates;
+    });
+    setExtinguishers(prev => [...prev, ...created]);
+    created.forEach(ext => routeWrite(db, fbUser, appId, 'extinguishers', ext.id, ext));
     setShowAddModal(false);
-    logAction('إضافة طفاية', `إضافة طفاية ${newExt.number} في ${newExt.location}`);
+    const first = created[0], last = created[created.length - 1];
+    logAction('إضافة طفاية', created.length === 1
+      ? `إضافة طفاية ${first.number} في ${first.location}`
+      : `إضافة ${created.length} طفايات (${first.number} → ${last.number}) في ${first.location}`);
   };
 
   const handleActionSubmit = (extIds, actionType, condition, remarks, date) => {
@@ -1630,6 +2062,27 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
 
   const transferrableCount = filtered.filter(e => selectedIds.includes(e.id) && !e.inCabinet).length;
 
+  // الموقع الذي سيُملأ تلقائياً في نافذة الإضافة حسب الفلتر المحدد
+  const prefillLocation = useMemo(() => {
+    if (filterMainLocation === 'All') return '';
+    return filterSubLocation !== 'All' ? `${filterMainLocation} / ${filterSubLocation}` : filterMainLocation;
+  }, [filterMainLocation, filterSubLocation]);
+
+  // اقتراح الرقم التالي المتاح تلقائياً
+  const suggestedNumber = useMemo(() => {
+    const nums = activeExtinguishers.map(e => Number(String(e.number || '').replace(/\D/g, '')) || 0);
+    return nums.length ? Math.max(...nums) + 1 : 1;
+  }, [activeExtinguishers]);
+
+  const clearFilters = () => {
+    setFilterType('All');
+    setFilterMainLocation('All');
+    setFilterSubLocation('All');
+    setQuickStatusFilter('All');
+    setSearchTerm('');
+    setSelectedIds([]);
+  };
+
   return (
     <div className="space-y-4 pb-24">
       {/* شريط الأدوات والفلاتر */}
@@ -1654,6 +2107,11 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
               onAddLocation={() => { const name = prompt('اسم الموقع الفرعي الجديد:'); if (name && name.trim() && filterMainLocation !== 'All') { const parentId = locationTree.find(n => n.name === filterMainLocation)?.id; if (parentId) onQuickAddLocation(parentId, name.trim()); } }}
               addLabel="إضافة موقع فرعي"
             />
+            {(filterMainLocation !== 'All' || filterSubLocation !== 'All' || filterType !== 'All' || searchTerm) && (
+              <button onClick={clearFilters} title="مسح جميع الفلاتر" className="flex items-center px-3 py-2 text-xs font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg transition-colors whitespace-nowrap">
+                <X className="w-3.5 h-3.5 ml-1" /> مسح الفلاتر
+              </button>
+            )}
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:items-center">
             <div className="relative w-full sm:w-48 lg:w-56"><Search className="w-5 h-5 absolute right-3 top-2.5 text-gray-400" /><input type="text" placeholder="بحث..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-3 pr-10 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" /></div>
@@ -1684,16 +2142,21 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
       </div>
 
       {selectedIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 transition-all duration-300">
-          <div className="flex items-center gap-2 rounded-full bg-white border border-gray-200 shadow-2xl px-3 py-2">
-            <span className="bg-blue-100 text-blue-800 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap">
-              {selectedIds.length} محدد
-            </span>
-            <button onClick={() => setActionModalData(extinguishers.filter(e => selectedIds.includes(e.id)))} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full flex items-center justify-center transition-colors shadow-sm text-sm font-bold whitespace-nowrap">
-              <Activity className="w-4 h-4 ml-1" /> إجراء جماعي
-            </button>
-            {canEdit && <button onClick={() => setTransferModalData(extinguishers.filter(e => selectedIds.includes(e.id) && !e.inCabinet))} disabled={transferrableCount === 0} className={`px-4 py-2 rounded-full flex items-center justify-center transition-colors shadow-sm text-sm font-bold whitespace-nowrap ${transferrableCount === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}><ArrowRightLeft className="w-4 h-4 ml-1" /> ترحيل</button>}
-            {canEdit && <button onClick={() => setConfirmDialog({ title: 'تأكيد الأرشفة', message: `هل أنت متأكد من رغبتك في أرشفة (${selectedIds.length}) طفاية؟`, action: handleBulkDelete, isDestructive: true })} className="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-full flex items-center justify-center transition-colors shadow-sm text-sm font-bold whitespace-nowrap"><Archive className="w-4 h-4 ml-1" /> أرشفة</button>}
+        <div className="fixed bottom-0 inset-x-0 md:bottom-6 md:left-1/2 md:right-auto md:transform md:-translate-x-1/2 z-50 px-2 pb-2 md:p-0">
+          <div className="bg-white border border-gray-200 shadow-2xl rounded-2xl md:rounded-full px-3 py-2 flex flex-col md:flex-row md:items-center gap-2 max-w-lg mx-auto md:max-w-none md:gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="bg-blue-100 text-blue-800 px-3 py-1.5 rounded-full text-sm font-bold whitespace-nowrap">
+                {selectedIds.length} محدد
+              </span>
+              <button onClick={() => setSelectedIds([])} title="إلغاء التحديد" className="md:hidden text-gray-400 hover:text-gray-600 p-1"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="flex gap-2 w-full md:w-auto md:flex-nowrap flex-wrap">
+              <button onClick={() => setActionModalData(extinguishers.filter(e => selectedIds.includes(e.id)))} className="flex-1 md:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full flex items-center justify-center transition-colors shadow-sm text-sm font-bold whitespace-nowrap">
+                <Activity className="w-4 h-4 ml-1" /> إجراء جماعي
+              </button>
+              {canEdit && <button onClick={() => setTransferModalData(extinguishers.filter(e => selectedIds.includes(e.id) && !e.inCabinet))} disabled={transferrableCount === 0} className={`flex-1 md:flex-none px-4 py-2 rounded-full flex items-center justify-center transition-colors shadow-sm text-sm font-bold whitespace-nowrap ${transferrableCount === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}><ArrowRightLeft className="w-4 h-4 ml-1" /> ترحيل</button>}
+              {canEdit && <button onClick={() => setConfirmDialog({ title: 'تأكيد الأرشفة', message: `هل أنت متأكد من رغبتك في أرشفة (${selectedIds.length}) طفاية؟`, action: handleBulkDelete, isDestructive: true })} className="flex-1 md:flex-none bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-full flex items-center justify-center transition-colors shadow-sm text-sm font-bold whitespace-nowrap"><Archive className="w-4 h-4 ml-1" /> أرشفة</button>}
+            </div>
           </div>
         </div>
       )}
@@ -1706,8 +2169,8 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
                 <td className="p-3 text-center"><input type="checkbox" className="w-4 h-4 text-red-600 rounded cursor-pointer" checked={selectedIds.includes(ext.id)} onChange={(e) => setSelectedIds(e.target.checked ? [...selectedIds, ext.id] : selectedIds.filter(id => id !== ext.id))} /></td>
                 <td className="p-3 font-bold text-gray-800"><div className="flex items-center gap-2" dir="ltr">{ext.number}{ext.inCabinet && <span title="في كابينة" className="bg-gray-200 text-gray-500 p-1 rounded-md ml-2"><Archive className="w-3 h-3" /></span>}</div></td>
                 <td className="p-3"><span className="bg-gray-200 px-2 py-1 rounded text-gray-700 text-xs">{ext.type}</span> {ext.size}</td><td className="p-3"><div className="text-gray-800 text-sm">{ext.location}</div></td>
-                <td className="p-3 text-gray-600 font-medium whitespace-nowrap">{ext.lastInspection || ext.lastDate}</td>
-                <td className="p-3 text-gray-500 whitespace-nowrap">{ext.nextDate}</td>
+                <td className="p-3 text-gray-600 font-medium whitespace-nowrap">{formatDisplayDate(ext.lastInspection || ext.lastDate)}</td>
+                <td className="p-3 text-gray-500 whitespace-nowrap">{formatDisplayDate(ext.nextDate)}</td>
                 <td className="p-3"><span className={`px-2 py-1 rounded-full text-[11px] font-bold flex items-center w-max ${getStatusColor(ext.status)} ${ext.status === 'تحتاج فحص' ? 'animate-pulse' : ''}`}>{ext.status === 'صالحة' ? <CheckCircle className="w-3 h-3 ml-1" /> : ext.status === 'تحتاج فحص' ? <AlertTriangle className="w-3 h-3 ml-1" /> : <XCircle className="w-3 h-3 ml-1" />}{ext.status}</span></td>
                 <td className="p-3 text-gray-500 text-xs max-w-[120px] truncate" title={ext.notes}>{ext.notes || '-'}</td>
                 <td className="p-3 text-center"><div className="flex justify-center gap-2"><button onClick={() => setActionModalData([ext])} className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-1.5 rounded text-xs font-medium transition-colors border border-blue-200">إجراء</button>
@@ -1731,8 +2194,8 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
             </div>
             <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">
               <div className="col-span-2"><span className="text-gray-400 block text-[10px] mb-0.5">الموقع</span><span className="font-medium text-gray-700">{ext.location}</span></div>
-              <div><span className="text-gray-400 block text-[10px] mb-0.5">آخر فحص يومي</span><span className="font-bold text-gray-700">{ext.lastInspection || ext.lastDate}</span></div>
-              <div className="col-span-2 pt-2 border-t border-gray-200/60"><span className="text-gray-400 block text-[10px] mb-0.5">موعد الصيانة الشاملة القادم</span><span className="font-bold text-gray-800">{ext.nextDate}</span></div>
+              <div><span className="text-gray-400 block text-[10px] mb-0.5">آخر فحص يومي</span><span className="font-bold text-gray-700">{formatDisplayDate(ext.lastInspection || ext.lastDate)}</span></div>
+              <div className="col-span-2 pt-2 border-t border-gray-200/60"><span className="text-gray-400 block text-[10px] mb-0.5">موعد الصيانة الشاملة القادم</span><span className="font-bold text-gray-800">{formatDisplayDate(ext.nextDate)}</span></div>
             </div>
             {ext.notes && <div className="text-xs bg-yellow-50 text-yellow-800 p-2.5 rounded-lg border border-yellow-100 flex items-start"><FileText className="w-4 h-4 ml-1.5 shrink-0 mt-0.5 text-yellow-600" /><span><strong className="font-bold">ملاحظة: </strong>{ext.notes}</span></div>}
             <div className="flex gap-2 pt-1"><button onClick={() => setActionModalData([ext])} className="flex-1 bg-blue-600 text-white hover:bg-blue-700 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center justify-center shadow-sm">إجراء (فحص/صيانة)</button>
@@ -1744,7 +2207,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
       </div>
 
       {showCustomSelectModal && <CustomSelectModal onClose={() => setShowCustomSelectModal(false)} onApply={applyCustomSelection} />}
-      {showAddModal && <AddExtinguisherModal onClose={() => setShowAddModal(false)} onAdd={handleAddExtinguisher} locationTree={locationTree} onAddLocation={onQuickAddLocation} />}
+      {showAddModal && <AddExtinguisherModal onClose={() => setShowAddModal(false)} onAdd={handleAddExtinguisher} locationTree={locationTree} onAddLocation={onQuickAddLocation} initialLocation={prefillLocation} suggestedNumber={suggestedNumber} />}
       {actionModalData && <ActionModal exts={actionModalData} onClose={() => setActionModalData(null)} onSubmit={handleActionSubmit} userRole={user.role} />}
       {editModalData && <EditExtinguisherModal ext={editModalData} onClose={() => setEditModalData(null)} onEdit={handleEdit} locationTree={locationTree} onAddLocation={onQuickAddLocation} />}
       {transferModalData && <TransferModal exts={transferModalData} onClose={() => setTransferModalData(null)} onSubmit={handleTransfer} locationTree={locationTree} onAddLocation={onQuickAddLocation} />}
@@ -1830,7 +2293,7 @@ function ExtinguisherHistoryModal({ ext, onClose, userRole, db, fbUser, appId, s
                       <span className={`w-fit px-3 py-1 rounded-full text-xs font-bold border ${sig.actionType === 'maintenance' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
                         {sig.actionType === 'maintenance' ? 'صيانة شاملة' : 'فحص يومي'}
                       </span>
-                      <span className="text-xs text-gray-400" dir="ltr">{sig.at ? new Date(sig.at).toLocaleString('ar-EG') : sig.date}</span>
+                      <span className="text-xs text-gray-400" dir="ltr">{sig.at ? formatDisplayDateTime(sig.at) : formatDisplayDate(sig.date)}</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                       <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
@@ -1938,8 +2401,22 @@ function ActionModal({ exts, onClose, onSubmit, userRole }) {
   );
 }
 
-function AddExtinguisherModal({ onClose, onAdd, locationTree, onAddLocation }) {
-  const [formData, setFormData] = useState({ numPart: '', size: '6Kg', type: 'Powder', location: '', lastDate: new Date().toISOString().split('T')[0], condition: 'سليمة', notes: '', inCabinet: false });
+function AddExtinguisherModal({ onClose, onAdd, locationTree, onAddLocation, initialLocation, suggestedNumber }) {
+  const [formData, setFormData] = useState(() => {
+    let last = {};
+    try { last = JSON.parse(window.localStorage.getItem('ft_lastAdd') || '{}') || {}; } catch (e) {}
+    return {
+      numPart: suggestedNumber && suggestedNumber > 0 ? String(suggestedNumber) : '',
+      size: last.size || '6Kg',
+      type: last.type || 'Powder',
+      location: initialLocation || '',
+      lastDate: new Date().toISOString().split('T')[0],
+      condition: last.condition || 'سليمة',
+      notes: '',
+      inCabinet: last.inCabinet === true,
+      count: 1
+    };
+  });
 
   const handleSubmit = (e) => { 
     e.preventDefault(); 
@@ -1947,14 +2424,36 @@ function AddExtinguisherModal({ onClose, onAdd, locationTree, onAddLocation }) {
       alert('يرجى اختيار الموقع.');
       return;
     }
-    const finalNumber = `EXT-${String(formData.numPart).padStart(3, '0')}`;
-    onAdd({ ...formData, number: finalNumber }); 
+    const startNum = Number(formData.numPart);
+    if (!startNum || startNum <= 0) {
+      alert('يرجى إدخال رقم الطفاية.');
+      return;
+    }
+    const count = Math.min(200, Math.max(1, Number(formData.count) || 1));
+    const items = [];
+    for (let i = 0; i < count; i++) {
+      const n = startNum + i;
+      items.push({
+        size: formData.size,
+        type: formData.type,
+        location: formData.location,
+        lastDate: formData.lastDate,
+        condition: formData.condition,
+        notes: formData.notes,
+        inCabinet: formData.inCabinet,
+        number: `EXT-${String(n).padStart(3, '0')}`
+      });
+    }
+    try {
+      window.localStorage.setItem('ft_lastAdd', JSON.stringify({ size: formData.size, type: formData.type, condition: formData.condition, inCabinet: formData.inCabinet }));
+    } catch (err) {}
+    onAdd(items); 
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden my-auto">
-        <div className="bg-red-600 text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg">إضافة طفاية مفردة</h3><button onClick={onClose} className="text-red-200 hover:text-white p-1">&times;</button></div>
+        <div className="bg-red-600 text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg">إضافة طفاية</h3><button onClick={onClose} className="text-red-200 hover:text-white p-1">&times;</button></div>
         <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-4">
           <div>
             <label className="block text-sm text-gray-600 mb-1">رقم الطفاية (أدخل الأرقام فقط)</label>
@@ -1962,6 +2461,12 @@ function AddExtinguisherModal({ onClose, onAdd, locationTree, onAddLocation }) {
               <span className="bg-gray-200 text-gray-600 font-bold px-4 py-2 border-r border-gray-300 select-none">EXT-</span>
               <input required type="number" min="1" placeholder="001" className="w-full px-3 py-2 outline-none bg-transparent" value={formData.numPart} onChange={e => setFormData({...formData, numPart: e.target.value})} />
             </div>
+            {suggestedNumber > 0 && <p className="text-xs text-gray-400 mt-1">اقتراح: الرقم التالي المتاح هو <span dir="ltr" className="font-bold text-gray-600">EXT-{String(suggestedNumber).padStart(3, '0')}</span></p>}
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">العدد (إضافة سريعة متتالية)</label>
+            <input required type="number" min="1" max="200" className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.count} onChange={e => setFormData({...formData, count: e.target.value})} />
+            {formData.count > 1 && <p className="text-xs text-gray-400 mt-1">سيتم إنشاء {formData.count} طفايات بأرقام متتالية تبدأ من <span dir="ltr" className="font-bold text-gray-600">EXT-{String(Number(formData.numPart) || '').padStart(3, '0')}</span></p>}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-sm text-gray-600 mb-1">النوع</label><select className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value, size: ''})}><option value="Powder">بودرة</option><option value="CO2">CO2</option><option value="Foam">رغوة</option><option value="Water">ماء</option><option value="Ceiling">سقفية</option></select></div>
@@ -1976,6 +2481,7 @@ function AddExtinguisherModal({ onClose, onAdd, locationTree, onAddLocation }) {
               placeholder="اختر الموقع..."
               onAddLocation={onAddLocation}
             />
+            {formData.location && <p className="text-xs text-green-600 mt-1">تم تعبئة الموقع من الفلتر المحدد: <span className="font-bold">{formData.location}</span></p>}
           </div>
           <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="inCabinet" className="w-4 h-4 text-red-600 rounded" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="inCabinet" className="text-sm font-bold text-gray-700 cursor-pointer select-none">مثبتة داخل كابينة</label></div>
           <div><label className="block text-sm text-gray-600 mb-1">تاريخ الإنشاء / الصيانة</label><input required type="date" className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
@@ -2205,7 +2711,7 @@ function AuditLogsList({ logs, userRole }) {
 
   const logsWithDay = useMemo(() => {
     return logs.map(log => {
-      const dayStr = log.dayStr || log.date.split(/,|،/)[0].trim();
+      const dayStr = normalizeDayStr(log.dayStr || log.date.split(/,|،/)[0].trim());
       return { ...log, dayStr };
     });
   }, [logs]);
@@ -2243,7 +2749,7 @@ function AuditLogsList({ logs, userRole }) {
       </div>
       
       <div className="hidden md:block overflow-x-auto w-full">
-        <table className="w-full text-right min-w-[600px]"><thead className="bg-gray-50 text-gray-600 text-sm border-y"><tr><th className="p-3">التاريخ والوقت</th><th className="p-3">المستخدم</th><th className="p-3">الإجراء</th><th className="p-3">التفاصيل</th></tr></thead><tbody className="divide-y divide-gray-100 text-sm">{filteredLogs.length === 0 ? <tr><td colSpan="4" className="p-8 text-center text-gray-500">لا توجد سجلات لهذا اليوم.</td></tr> : filteredLogs.map(log => <tr key={log.id} className="hover:bg-gray-50"><td className="p-3 text-gray-500 whitespace-nowrap" dir="ltr">{log.date}</td><td className="p-3 font-medium text-blue-700 whitespace-nowrap">{log.userName}</td><td className="p-3"><span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-lg text-[11px] font-bold border whitespace-nowrap">{log.action}</span></td><td className="p-3 text-gray-700 min-w-[200px]">{log.details}</td></tr>)}</tbody></table>
+        <table className="w-full text-right min-w-[600px]"><thead className="bg-gray-50 text-gray-600 text-sm border-y"><tr><th className="p-3">التاريخ والوقت</th><th className="p-3">المستخدم</th><th className="p-3">الإجراء</th><th className="p-3">التفاصيل</th></tr></thead><tbody className="divide-y divide-gray-100 text-sm">{filteredLogs.length === 0 ? <tr><td colSpan="4" className="p-8 text-center text-gray-500">لا توجد سجلات لهذا اليوم.</td></tr> : filteredLogs.map(log => <tr key={log.id} className="hover:bg-gray-50"><td className="p-3 text-gray-500 whitespace-nowrap" dir="ltr">{formatLogDate(log.date)}</td><td className="p-3 font-medium text-blue-700 whitespace-nowrap">{log.userName}</td><td className="p-3"><span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-lg text-[11px] font-bold border whitespace-nowrap">{log.action}</span></td><td className="p-3 text-gray-700 min-w-[200px]">{log.details}</td></tr>)}</tbody></table>
       </div>
 
       <div className="md:hidden flex flex-col gap-3">
@@ -2254,7 +2760,7 @@ function AuditLogsList({ logs, userRole }) {
             <div key={log.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex flex-col gap-2 relative">
               <div className="flex justify-between items-start mb-1">
                 <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-md text-[10px] font-bold border">{log.action}</span>
-                <span className="text-gray-400 text-[10px]" dir="ltr">{log.date}</span>
+                <span className="text-gray-400 text-[10px]" dir="ltr">{formatLogDate(log.date)}</span>
               </div>
               <div className="text-sm font-bold text-blue-700">{log.userName}</div>
               <div className="text-xs text-gray-700 leading-relaxed bg-gray-50 p-2 rounded border border-gray-200">{log.details}</div>
@@ -2274,7 +2780,7 @@ function PerformanceReport({ auditLogs, userRole, db, fbUser, appId, setAuditLog
 
   const logsWithDay = useMemo(() => {
     return auditLogs.map(log => {
-      const dayStr = log.dayStr || String(log.date || '').split(/,|،/)[0].trim();
+      const dayStr = normalizeDayStr(log.dayStr || String(log.date || '').split(/,|،/)[0].trim());
       return { ...log, dayStr };
     });
   }, [auditLogs]);
@@ -2285,7 +2791,7 @@ function PerformanceReport({ auditLogs, userRole, db, fbUser, appId, setAuditLog
   }, [logsWithDay]);
 
   useEffect(() => {
-    const todayStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'numeric', day: 'numeric' });
+    const todayStr = formatDisplayDate(new Date());
     if (selectedDay === 'All' && availableDays.includes(todayStr)) {
       setSelectedDay(todayStr);
     }
@@ -2391,7 +2897,7 @@ function PerformanceReport({ auditLogs, userRole, db, fbUser, appId, setAuditLog
                             {log.action}
                           </span>
                           <div className="flex items-center gap-2">
-                            <span className="text-xs text-gray-400" dir="ltr">{log.date}</span>
+                            <span className="text-xs text-gray-400" dir="ltr">{formatLogDate(log.date)}</span>
                             {canDeleteLogs && (
                               <button
                                 onClick={() => handleDeleteLog(log.id)}
@@ -2584,7 +3090,7 @@ function SignatureLogsList({ extinguishers, userRole }) {
               <tr><td colSpan="7" className="p-8 text-center text-gray-500">لا توجد توقيعات حتى الآن.</td></tr>
             ) : rows.map(r => (
               <tr key={r.id} className={`hover:bg-gray-50 ${r.archived ? 'bg-gray-50/60' : ''}`}>
-                <td className="p-3 text-gray-500 whitespace-nowrap" dir="ltr">{r.at ? new Date(r.at).toLocaleString('ar-EG') : r.date}</td>
+                <td className="p-3 text-gray-500 whitespace-nowrap" dir="ltr">{r.at ? formatDisplayDateTime(r.at) : formatDisplayDate(r.date)}</td>
                 <td className="p-3 font-bold text-gray-800" dir="ltr">{r.extNumber}</td>
                 <td className="p-3 text-gray-700">{r.location}</td>
                 <td className="p-3"><span className="px-2 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold">{r.actionType === 'maintenance' ? 'صيانة شاملة' : 'فحص يومي'}</span></td>
@@ -2604,7 +3110,7 @@ function SignatureLogsList({ extinguishers, userRole }) {
           <div key={r.id} className={`rounded-lg border p-3 ${r.archived ? 'bg-gray-50 border-gray-200' : 'bg-white border-gray-100'}`}>
             <div className="flex justify-between items-center mb-2">
               <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded">{r.actionType === 'maintenance' ? 'صيانة شاملة' : 'فحص يومي'}</span>
-              <span className="text-[10px] text-gray-400" dir="ltr">{r.at ? new Date(r.at).toLocaleString('ar-EG') : r.date}</span>
+              <span className="text-[10px] text-gray-400" dir="ltr">{r.at ? formatDisplayDateTime(r.at) : formatDisplayDate(r.date)}</span>
             </div>
             <div className="text-sm font-bold text-gray-800" dir="ltr">{r.extNumber}</div>
             <div className="text-xs text-gray-600 mt-1">{r.location} - {r.condition}</div>
