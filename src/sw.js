@@ -29,7 +29,14 @@ self.addEventListener('push', (event) => {
     data: { url: data.url || '/' },
   }
   if (notification.sound !== undefined) options.sound = notification.sound
-  event.waitUntil(self.registration.showNotification(title, options))
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('visibilityState' in client && client.visibilityState === 'visible') return
+      }
+      return self.registration.showNotification(title, options)
+    })
+  )
 })
 
 self.addEventListener('notificationclick', (event) => {

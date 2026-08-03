@@ -596,25 +596,6 @@ export default function App() {
     } catch (e) {}
   };
 
-  if (!currentUser) return <LoginScreen onLogin={setCurrentUser} users={users} siteSettings={siteSettings} />;
-
-  const getRoleLabel = (role) => {
-    switch(role) {
-      case 'developer': return 'المبرمج الأعلى';
-      case 'father': return 'المشرف العام';
-      case 'admin': return 'مسؤول النظام';
-      default: return 'عضو';
-    }
-  };
-
-  const getRoleColor = (role) => {
-    switch(role) {
-      case 'developer': return 'bg-purple-900 border-purple-600';
-      case 'father': return 'bg-yellow-600 border-yellow-400 text-yellow-50'; 
-      default: return 'bg-red-900 border-red-600';
-    }
-  };
-
   // ===== نظام الإشعارات (FCM / Web Push) =====
   const [notifSupported, setNotifSupported] = useState(false);
   const [notifToken, setNotifToken] = useState(null);
@@ -633,9 +614,6 @@ export default function App() {
     subscribeForeground(app, ({ title, body, url }) => {
       playNotifSound();
       setNotifToast({ title, body, url, at: Date.now() });
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        try { new Notification(title, { body, icon: '/icons/icon-192.png' }); } catch (e) {}
-      }
     });
     getExistingToken(app).then(tok => {
       if (!mounted) return;
@@ -682,6 +660,25 @@ export default function App() {
     });
     prevNotifStatus.current = snapshot;
   }, [activeExtWithStatus, db, appId]);
+
+  if (!currentUser) return <LoginScreen onLogin={setCurrentUser} users={users} siteSettings={siteSettings} />;
+
+  const getRoleLabel = (role) => {
+    switch(role) {
+      case 'developer': return 'المبرمج الأعلى';
+      case 'father': return 'المشرف العام';
+      case 'admin': return 'مسؤول النظام';
+      default: return 'عضو';
+    }
+  };
+
+  const getRoleColor = (role) => {
+    switch(role) {
+      case 'developer': return 'bg-purple-900 border-purple-600';
+      case 'father': return 'bg-yellow-600 border-yellow-400 text-yellow-50'; 
+      default: return 'bg-red-900 border-red-600';
+    }
+  };
 
   const handleEnableNotif = async () => {
     if (!app) return;

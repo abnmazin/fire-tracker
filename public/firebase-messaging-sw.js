@@ -33,11 +33,18 @@ self.addEventListener('notificationclick', (event) => {
 messaging.onBackgroundMessage((payload) => {
   const notification = payload.notification || {};
   const data = payload.data || {};
+  const title = notification.title || data.title || 'لجنة السلامة';
+  const body = notification.body || data.body || '';
   const options = {
-    body: notification.body || '',
+    body,
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     data: { url: data.url || '/' },
   };
-  return self.registration.showNotification(notification.title || 'لجنة السلامة', options);
+  return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    for (const client of clientList) {
+      if ('visibilityState' in client && client.visibilityState === 'visible') return undefined;
+    }
+    return self.registration.showNotification(title, options);
+  });
 });
