@@ -4,7 +4,8 @@ import {
   Settings, LayoutDashboard, FireExtinguisher, Search, Users,
   CheckCircle, XCircle, ClipboardList, ArrowRightLeft, Archive, Edit, Filter,
   UserPlus, Trash2, Phone, Menu, X, MapPin, DatabaseBackup, Loader2, Calendar,
-  CopyPlus, Target, Activity, History, WifiOff, Printer, Download, FileSpreadsheet
+  CopyPlus, Target, Activity, History, WifiOff, Printer, Download, FileSpreadsheet,
+  ChevronDown
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -1059,6 +1060,14 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [cartItems, setCartItems] = useState([]);
   const [cartTargetLocation, setCartTargetLocation] = useState('');
+  const [expandedMainLocs, setExpandedMainLocs] = useState(() => new Set());
+  const toggleMainLoc = (name) => {
+    setExpandedMainLocs(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showExportSettings, setShowExportSettings] = useState(false);
   const [exportOptions, setExportOptions] = useState(() => {
@@ -1400,12 +1409,16 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
           const rows = buildInventoryRows(lData);
           return (
           <div key={mainLoc} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="bg-gradient-to-l from-gray-700 to-gray-600 px-4 md:px-5 py-3 flex justify-between items-center">
-              <h2 className="text-white font-bold text-sm md:text-base flex items-center gap-2">
+            <button type="button" onClick={() => toggleMainLoc(mainLoc)} className="w-full bg-gradient-to-l from-gray-700 to-gray-600 px-4 md:px-5 py-3 flex justify-between items-center hover:from-gray-800 hover:to-gray-700 transition-colors cursor-pointer">
+              <span className="text-white font-bold text-sm md:text-base flex items-center gap-2">
                 <MapPin className="w-4 h-4 shrink-0" /> الجرد الشامل لطفايات الحريق — {mainLoc}
-              </h2>
-              <span className="bg-white/25 text-white text-sm font-bold px-3 py-0.5 rounded-full whitespace-nowrap">{lData.total}</span>
-            </div>
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="bg-white/25 text-white text-sm font-bold px-3 py-0.5 rounded-full whitespace-nowrap">{lData.total}</span>
+                <ChevronDown className={`w-5 h-5 text-white/70 transition-transform duration-200 ${expandedMainLocs.has(mainLoc) ? 'rotate-180' : ''}`} />
+              </span>
+            </button>
+            {expandedMainLocs.has(mainLoc) && (
             <div className="overflow-x-auto">
               <table className="w-full text-xs md:text-sm">
                 <thead>
@@ -1448,6 +1461,7 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
                 </tfoot>
               </table>
             </div>
+            )}
           </div>
           );
         })}
