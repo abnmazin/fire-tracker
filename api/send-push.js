@@ -79,11 +79,7 @@ export default async function handler(req, res) {
     if (!sa) return res.status(500).json({ error: 'FCM service account not configured' });
 
     const accessToken = await getAccessToken(sa);
-    const notification = {
-      title: String(body.title || 'لجنة السلامة'),
-      body: String(body.body || ''),
-    };
-    const data = {};
+    const data = { title: String(body.title || 'لجنة السلامة'), body: String(body.body || '') };
     if (body.data && typeof body.data === 'object') {
       for (const [k, v] of Object.entries(body.data)) data[k] = String(v);
     }
@@ -103,7 +99,6 @@ export default async function handler(req, res) {
           body: JSON.stringify({
             message: {
               token,
-              notification,
               data,
               webpush: {
                 fcm_options: { link: data.url || '/' },
@@ -125,7 +120,7 @@ export default async function handler(req, res) {
       }
     }
 
-    return res.status(200).json({ sent, failed, invalidCount: invalid.length });
+    return res.status(200).json({ sent, failed, invalidCount: invalid.length, failedTokens: invalid });
   } catch (e) {
     return res.status(500).json({ error: String(e && e.message ? e.message : e) });
   }

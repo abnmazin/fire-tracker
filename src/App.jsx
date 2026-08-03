@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, ClipboardList, ArrowRightLeft, Archive, Edit, Filter,
   UserPlus, Trash2, Phone, Menu, X, MapPin, DatabaseBackup, Loader2, Calendar,
   CopyPlus, Target, Activity, History, WifiOff, Printer, Download, FileSpreadsheet,
-  ChevronDown, Bell, Send
+  ChevronDown, Bell, Send, Check
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -15,7 +15,7 @@ import { initializeFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, wr
 import HierarchicalLocationPicker from './HierarchicalLocationPicker';
 import LocationTreeManager from './LocationTreeManager';
 import { migrateIfNeeded, getAllLeafPaths, getAllNodePaths, deserializeTree, serializeTree, flatToTree, addNode, getNodePath, findNodeById } from './locationUtils';
-import { isNotifSupported, subscribeForeground, getExistingToken, requestNotifToken, registerToken, unregisterToken, sendPushNotification, playNotifSound } from './notifications';
+import { isNotifSupported, subscribeForeground, getExistingToken, requestNotifToken, registerToken, unregisterToken, createNotification, setNotificationLike, playNotifSound } from './notifications';
 
 let app, auth, db, appId;
 
@@ -322,7 +322,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState(() => {
     try {
       const v = new URLSearchParams(window.location.search).get('view');
-      const valid = ['dashboard', 'list', 'report', 'performance', 'inspectionPolicy', 'archive', 'settings', 'users'];
+      const valid = ['dashboard', 'list', 'report', 'performance', 'inspectionPolicy', 'archive', 'settings', 'users', 'notifications'];
       if (valid.includes(v)) return v;
       const saved = localStorage.getItem('ft_view');
       return valid.includes(saved) ? saved : 'dashboard';
@@ -502,7 +502,14 @@ export default function App() {
       if (snap.exists()) setSiteSettings(snap.data());
     }, console.error);
 
-    return () => { unsubExt(); unsubUsers(); unsubLogs(); unsubContacts(); unsubLocs(); unsubPolicies(); unsubSiteSettings(); };
+    const unsubNotifs = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'app_data'), (snap) => {
+      const arr = [];
+      snap.forEach((d) => { if (d.id.startsWith('ntf')) arr.push(d.data()); });
+      arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      setNotifications(arr);
+    }, console.error);
+
+    return () => { unsubExt(); unsubUsers(); unsubLogs(); unsubContacts(); unsubLocs(); unsubPolicies(); unsubSiteSettings(); unsubNotifs(); };
   }, [fbUser, appId]);
 
   const logAction = (action, details) => {
@@ -604,6 +611,7 @@ export default function App() {
   const [notifToast, setNotifToast] = useState(null);
   const [customNotif, setCustomNotif] = useState({ title: '', body: '' });
   const [customNotifResult, setCustomNotifResult] = useState('');
+  const [notifications, setNotifications] = useState([]);
 
   const activeExtWithStatus = useMemo(() => extinguishers.filter(e => !e.archived).map(e => ({ ...e, status: resolveExtinguisherStatus(e, inspectionPolicies) })), [extinguishers, inspectionPolicies]);
 
@@ -646,7 +654,7 @@ export default function App() {
         store[key] = new Date().toISOString();
         localStorage.setItem('ft_notif_sent', JSON.stringify(store));
       } catch (e) {}
-      sendPushNotification(db, appId, { title, body, data: { url: '/?view=list' } }).catch(() => {});
+      createNotification(db, appId, { title, body, url: '/?view=list', kind: 'status', senderId: '', senderName: 'النظام' }).catch(() => {});
     };
 
     activeExtWithStatus.forEach(e => {
@@ -705,8 +713,8 @@ export default function App() {
   const handleCustomNotifSend = async () => {
     if (!db || !appId || !customNotif.title.trim()) return;
     setNotifBusy(true); setCustomNotifResult('');
-    const res = await sendPushNotification(db, appId, { title: customNotif.title.trim(), body: customNotif.body.trim(), data: { url: '/' } });
-    setCustomNotifResult(res.skipped ? 'لا توجد أجهزة مسجلة بعد.' : `تم الإرسال إلى ${res.sent || 0} جهاز${res.failed ? ` (فشل ${res.failed})` : ''}.${res.error ? ' (' + res.error + ')' : ''}`);
+    const res = await createNotification(db, appId, { title: customNotif.title.trim(), body: customNotif.body.trim(), url: '/', kind: 'custom', senderId: currentUser.id, senderName: currentUser.name });
+    setCustomNotifResult(res.skipped ? 'لا توجد أجهزة مسجلة بعد.' : `تم الإرسال إلى ${res.sent || 0} من ${res.total || 0} جهاز${res.failed ? ` (فشل ${res.failed})` : ''}.${res.error ? ' (' + res.error + ')' : ''}`);
     setNotifBusy(false);
   };
 
@@ -746,6 +754,7 @@ export default function App() {
             <SidebarBtn icon={LayoutDashboard} label="لوحة التحكم" active={currentView === 'dashboard'} onClick={() => navigateTo('dashboard')} />
             <SidebarBtn icon={FireExtinguisher} label="سجل الطفايات" active={currentView === 'list'} onClick={() => navigateTo('list')} />
             <SidebarBtn icon={FileText} label="التقارير" active={currentView === 'report'} onClick={() => navigateTo('report')} />
+            <SidebarBtn icon={Bell} label="الإشعارات" active={currentView === 'notifications'} onClick={() => navigateTo('notifications')} />
             {(currentUser.role === 'developer' || currentUser.role === 'admin' || currentUser.role === 'father') && (
               <SidebarBtn icon={Activity} label="متابعة الإنجاز" active={currentView === 'performance'} onClick={() => navigateTo('performance')} />
             )}
@@ -814,13 +823,14 @@ export default function App() {
           {currentView === 'performance' && <PerformanceReport auditLogs={auditLogs} userRole={currentUser.role} db={db} fbUser={fbUser} appId={appId} setAuditLogs={setAuditLogs} />}
           {currentView === 'inspectionPolicy' && <InspectionPolicyCenter topLevelLocations={topLevelLocations} inspectionPolicies={inspectionPolicies} setInspectionPolicies={setInspectionPolicies} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
           {currentView === 'archive' && <ArchiveCenter extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
-          {currentView === 'settings' && <DeveloperSettings locationTree={locationTree} setLocationTree={handleSaveLocations} onRenameLocation={handleLocationRename} contacts={contacts} auditLogs={auditLogs} setAuditLogs={setAuditLogs} extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} siteSettings={siteSettings} setSiteSettings={handleSaveSiteSettings} topLevelLocations={topLevelLocations} notifSupported={notifSupported} notifToken={notifToken} notifBusy={notifBusy} notifMsg={notifMsg} onEnableNotif={handleEnableNotif} onDisableNotif={handleDisableNotif} customNotif={customNotif} setCustomNotif={setCustomNotif} customNotifResult={customNotifResult} onCustomNotifSend={handleCustomNotifSend} />}
+          {currentView === 'notifications' && <NotificationsPage notifSupported={notifSupported} notifToken={notifToken} notifBusy={notifBusy} notifMsg={notifMsg} onEnableNotif={handleEnableNotif} onDisableNotif={handleDisableNotif} notifications={notifications} db={db} appId={appId} user={currentUser} canSend={(currentUser.role === 'developer' || currentUser.role === 'father' || currentUser.role === 'admin')} customNotif={customNotif} setCustomNotif={setCustomNotif} customNotifResult={customNotifResult} onCustomNotifSend={handleCustomNotifSend} />}
+          {currentView === 'settings' && <DeveloperSettings locationTree={locationTree} setLocationTree={handleSaveLocations} onRenameLocation={handleLocationRename} contacts={contacts} auditLogs={auditLogs} setAuditLogs={setAuditLogs} extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} siteSettings={siteSettings} setSiteSettings={handleSaveSiteSettings} topLevelLocations={topLevelLocations} />}
         </main>
       </div>
 
       {notifToast && (
         <div className="fixed bottom-4 inset-x-4 z-[70] flex justify-center pointer-events-none">
-          <div className="pointer-events-auto bg-white border border-emerald-200 rounded-xl shadow-2xl px-4 py-3 flex items-start gap-3 max-w-md w-full">
+          <div className="pointer-events-auto bg-white border border-emerald-200 rounded-xl shadow-2xl px-4 py-3 flex items-start gap-3 max-w-md w-full max-h-[40vh] overflow-y-auto">
             <Bell className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="font-bold text-gray-800 text-sm">{notifToast.title}</p>
@@ -839,6 +849,171 @@ function SidebarBtn({ icon: Icon, label, active, onClick }) {
     <button onClick={onClick} className={`flex items-center w-full p-3 rounded-lg transition-colors ${active ? 'bg-red-900 text-white font-medium shadow-inner' : 'text-red-100 hover:bg-red-700 hover:text-white'}`}>
       <Icon className="w-5 h-5 ml-3" /> {label}
     </button>
+  );
+}
+
+function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, onEnableNotif, onDisableNotif, notifications, db, appId, user, canSend, customNotif, setCustomNotif, customNotifResult, onCustomNotifSend }) {
+  const [popup, setPopup] = useState(null);
+
+  const kindBadge = (kind) => {
+    if (kind === 'status') return <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">تنبيه تلقائي</span>;
+    if (kind === 'custom') return <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">إرسال يدوي</span>;
+    return <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">استلام</span>;
+  };
+
+  const isLiked = (n) => Boolean(n && n.likes && user && n.likes[user.id]);
+
+  const toggleLike = async (n) => {
+    if (!db || !appId || !user || !n) return;
+    await setNotificationLike(db, appId, n.id, user, !isLiked(n));
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-4">
+      <div className="bg-white rounded-xl shadow-sm p-4 md:p-6 border border-gray-200">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg bg-red-100 text-red-700 flex items-center justify-center"><Bell className="w-5 h-5" /></div>
+          <div>
+            <h2 className="font-bold text-gray-800">الإشعارات</h2>
+            <p className="text-xs text-gray-500">فعّل أو أوقف استقبال الإشعارات وشاهد سجل الإشعارات</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {notifSupported ? (
+            notifToken ? (
+              <button onClick={onDisableNotif} disabled={notifBusy} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+                إيقاف الإشعارات
+              </button>
+            ) : (
+              <button onClick={onEnableNotif} disabled={notifBusy} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                {notifBusy ? 'جاري التفعيل...' : 'تفعيل الإشعارات'}
+              </button>
+            )
+          ) : (
+            <span className="text-sm text-gray-500">المتصفح الحالي لا يدعم الإشعارات.</span>
+          )}
+          {notifToken && <span className="text-xs text-emerald-700 font-medium">✓ الإشعارات مفعّلة</span>}
+        </div>
+        {notifMsg && <p className="text-xs mt-3 text-gray-600">{notifMsg}</p>}
+      </div>
+
+      {canSend && (
+        <div className="bg-white rounded-xl shadow-sm p-4 md:p-6 border border-gray-200">
+          <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center"><Send className="w-4 h-4 ml-1.5 text-emerald-600"/> إرسال إشعار للجميع</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <input
+              type="text"
+              className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
+              placeholder="عنوان الإشعار"
+              value={customNotif.title}
+              onChange={(e) => setCustomNotif((n) => ({ ...n, title: e.target.value }))}
+            />
+            <input
+              type="text"
+              className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
+              placeholder="نص الإشعار"
+              value={customNotif.body}
+              onChange={(e) => setCustomNotif((n) => ({ ...n, body: e.target.value }))}
+            />
+          </div>
+          <button onClick={onCustomNotifSend} disabled={notifBusy || !customNotif.title.trim()} className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 rounded-lg transition-colors disabled:opacity-50 text-sm flex items-center gap-2">
+            <Send className="w-4 h-4" /> إرسال للجميع
+          </button>
+          {customNotifResult && <p className="text-xs text-gray-600 mt-2">{customNotifResult}</p>}
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="flex items-center gap-2 p-4 md:p-5 border-b border-gray-100">
+          <History className="w-5 h-5 text-gray-400" />
+          <h3 className="font-bold text-gray-800">سجل الإشعارات</h3>
+          <span className="text-xs text-gray-400">({notifications.length})</span>
+        </div>
+        <div className="divide-y divide-gray-100">
+          {notifications.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-8">لا توجد إشعارات بعد.</p>
+          )}
+          {notifications.map((n) => {
+            return (
+              <div key={n.id} className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-bold text-sm text-gray-800">{n.title}</p>
+                  <TimeLabel at={n.createdAt} />
+                </div>
+                {n.body && <p className="text-xs text-gray-500 mt-1 whitespace-pre-line">{n.body}</p>}
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  {kindBadge(n.kind)}
+                  <span className="text-[10px] text-gray-400">المرسل: {n.senderName || 'النظام'}</span>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <button onClick={() => toggleLike(n)} className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors ${isLiked(n) ? 'bg-emerald-50 border-emerald-300 text-emerald-600 font-medium' : 'bg-gray-50 border-gray-200 text-gray-500 hover:text-emerald-600'}`}>
+                    <Check className="w-3.5 h-3.5" /> تم
+                  </button>
+                  <button onClick={() => setPopup(n)} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-gray-50 border border-gray-200 text-gray-500 hover:text-gray-700">
+                    <Users className="w-3.5 h-3.5" /> من أعجب ولم يعجب
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {popup && <NotifStatsPopup notif={popup} onClose={() => setPopup(null)} />}
+    </div>
+  );
+}
+
+function TimeLabel({ at }) {
+  const [label, setLabel] = useState('');
+  useEffect(() => {
+    let t;
+    t = setTimeout(() => {
+      try { setLabel(new Date(at).toLocaleString('ar-IQ', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })); } catch { setLabel(''); }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [at]);
+  return <span className="text-[11px] text-gray-400 shrink-0">{label}</span>;
+}
+
+function NotifStatsPopup({ notif, onClose }) {
+  const likes = (notif && notif.likes) || {};
+  const targets = Object.entries((notif && notif.targetUsers) || {});
+  const likers = Object.entries(likes);
+  const likerIds = new Set(likers.map(([k]) => k));
+  const nonLikers = targets.filter(([k]) => !likerIds.has(k));
+
+  return (
+    <div className="fixed inset-0 z-[80] bg-black/50 flex items-end md:items-center justify-center p-0 md:p-4" onClick={onClose}>
+      <div className="bg-white w-full md:max-w-md md:rounded-2xl rounded-t-2xl shadow-2xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 shrink-0">
+          <div className="min-w-0">
+            <h3 className="font-bold text-gray-800 text-sm truncate">{notif.title}</h3>
+            <p className="text-[11px] text-gray-400">المرسل: {notif.senderName || 'النظام'}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 shrink-0"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="overflow-y-auto p-4 space-y-4">
+          <div>
+            <p className="text-xs font-bold text-gray-500 mb-2">من أعجب بالإشعار ({likers.length})</p>
+            {likers.length === 0 && <p className="text-xs text-gray-400">لا أحد أعجب بعد.</p>}
+            {likers.map(([id, v]) => (
+              <div key={id} className="flex items-center justify-between py-1.5 border-b border-gray-50">
+                <span className="text-sm text-gray-700 font-medium flex items-center gap-2"><Check className="w-3.5 h-3.5 text-emerald-600" /> {v.name}</span>
+                <TimeLabel at={v.at} />
+              </div>
+            ))}
+          </div>
+          <div>
+            <p className="text-xs font-bold text-gray-500 mb-2">لم يعجبوا بعد ({nonLikers.length})</p>
+            {nonLikers.length === 0 && <p className="text-xs text-gray-400">لا أحد بعد — أو الجميع أعجبوا!</p>}
+            {nonLikers.map(([id, t]) => (
+              <div key={id} className="py-1.5 border-b border-gray-50 text-sm text-gray-700 font-medium">{t.name}</div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3327,7 +3502,7 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
 }
 
 // 10. إعدادات المطور
-function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, contacts, auditLogs, setAuditLogs, extinguishers, setExtinguishers, users, setUsers, db, fbUser, appId, logAction, currentUser, siteSettings, setSiteSettings, topLevelLocations, notifSupported, notifToken, notifBusy, notifMsg, onEnableNotif, onDisableNotif, customNotif, setCustomNotif, customNotifResult, onCustomNotifSend }) {
+function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, contacts, auditLogs, setAuditLogs, extinguishers, setExtinguishers, users, setUsers, db, fbUser, appId, logAction, currentUser, siteSettings, setSiteSettings, topLevelLocations }) {
   const [confirmDialog, setConfirmDialog] = useState(null); 
   const [bulkData, setBulkData] = useState({ startNum: 1, endNum: 10, type: 'Powder', size: '6Kg', mainLocation: topLevelLocations[0] || '', subLocation: '' });
   const [siteForm, setSiteForm] = useState({ name: siteSettings?.name || '', logoUrl: siteSettings?.logoUrl || '' });
@@ -3472,60 +3647,6 @@ function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, co
         >
           {siteSaved ? '✓ تم الحفظ!' : 'حفظ التغييرات'}
         </button>
-      </div>
-
-      {/* نظام الإشعارات */}
-      <div className="bg-white rounded-xl shadow-sm border border-emerald-200 p-5">
-        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><Bell className="w-5 h-5 ml-2 text-emerald-600"/> نظام الإشعارات (إشعارات الدفع)</h3>
-        <div className="space-y-4">
-          {!notifSupported ? (
-            <p className="text-sm text-gray-500">هذا المتصفح لا يدعم إشعارات الدفع. على الآيفون: ثبّت التطبيق على الشاشة الرئيسية (مشاركة → إضافة إلى الشاشة الرئيسية) ثم افتحه من الشاشة الرئيسية لتفعيل الإشعارات.</p>
-          ) : notifToken ? (
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="inline-flex items-center gap-2 text-sm font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1.5"><CheckCircle className="w-4 h-4" /> الإشعارات مفعلة على هذا الجهاز</span>
-              <button onClick={onDisableNotif} disabled={notifBusy} className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50">إيقاف الإشعارات</button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm text-gray-500">الإشعارات غير مفعلة على هذا الجهاز.</span>
-              <button onClick={onEnableNotif} disabled={notifBusy} className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold px-5 py-2.5 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
-                <Bell className="w-4 h-4" /> {notifBusy ? 'جارٍ التفعيل...' : 'تفعيل الإشعارات'}
-              </button>
-            </div>
-          )}
-          {notifMsg && <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-2.5">{notifMsg}</p>}
-          <div className="text-[11px] text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-lg p-2.5 leading-relaxed">
-            ملاحظات:
-            <ul className="list-disc pr-5 mt-1 space-y-0.5">
-              <li>على الآيفون: يجب تثبيت التطبيق من Safari (مشاركة ← إضافة إلى الشاشة الرئيسية) — الإشعارات تعمل فقط على النسخة المثبّتة (iOS 16.4+).</li>
-              <li>الصوت: يصدر صوت النظام فقط، ولا يعمل إذا كان الهاتف على الصامت.</li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="mt-5 pt-4 border-t border-gray-200">
-          <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center"><Send className="w-4 h-4 ml-1.5 text-emerald-600"/> إرسال إشعار مخصص للجميع</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <input
-              type="text"
-              className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-              placeholder="عنوان الإشعار"
-              value={customNotif.title}
-              onChange={e => setCustomNotif(n => ({ ...n, title: e.target.value }))}
-            />
-            <input
-              type="text"
-              className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-              placeholder="نص الإشعار"
-              value={customNotif.body}
-              onChange={e => setCustomNotif(n => ({ ...n, body: e.target.value }))}
-            />
-          </div>
-          <button onClick={onCustomNotifSend} disabled={notifBusy || !customNotif.title.trim()} className="mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 rounded-lg transition-colors disabled:opacity-50 text-sm flex items-center gap-2">
-            <Send className="w-4 h-4" /> إرسال للجميع
-          </button>
-          {customNotifResult && <p className="text-xs text-gray-600 mt-2">{customNotifResult}</p>}
-        </div>
       </div>
 
       <details className="bg-white rounded-xl shadow-sm border border-gray-200 p-4" open>
