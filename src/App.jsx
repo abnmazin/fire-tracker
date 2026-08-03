@@ -329,6 +329,18 @@ export default function App() {
     } catch (e) { return 'dashboard'; }
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const restricted = {
+      performance: ['developer', 'admin', 'father'],
+      inspectionPolicy: ['developer', 'father'],
+      archive: ['developer', 'father'],
+      settings: ['developer'],
+    };
+    const allowed = restricted[currentView];
+    if (allowed && !allowed.includes(currentUser.role)) setCurrentView('dashboard');
+  }, [currentUser, currentView]);
   const [fbUser, setFbUser] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncStatus, setSyncStatus] = useState('idle'); // idle | syncing | synced
@@ -473,8 +485,12 @@ export default function App() {
       const updatedUsers = snap.docs.map(d => ({ ...d.data(), archived: Boolean(d.data().archived) }));
       setUsers(updatedUsers);
       if (currentUserRef.current) {
-        const stillExists = updatedUsers.some(u => String(u.id) === String(currentUserRef.current.id) && !u.archived);
-        if (!stillExists) setCurrentUser(null);
+        const me = updatedUsers.find(u => String(u.id) === String(currentUserRef.current.id));
+        if (!me || me.archived) {
+          setCurrentUser(null);
+        } else if (me.role !== currentUserRef.current.role || me.name !== currentUserRef.current.name) {
+          setCurrentUser({ ...currentUserRef.current, role: me.role, name: me.name });
+        }
       }
     }, console.error);
 
@@ -1005,7 +1021,7 @@ function NotifStatsPopup({ notif, onClose }) {
             ))}
           </div>
           <div>
-            <p className="text-xs font-bold text-gray-500 mb-2">لم يعجبوا بعد ({nonLikers.length})</p>
+            <p className="text-xs font-bold text-gray-500 mb-2">({nonLikers.length})</p>
             {nonLikers.length === 0 && <p className="text-xs text-gray-400">لا أحد بعد — أو الجميع أعجبوا!</p>}
             {nonLikers.map(([id, t]) => (
               <div key={id} className="py-1.5 border-b border-gray-50 text-sm text-gray-700 font-medium">{t.name}</div>
