@@ -1,3 +1,36 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* قفل الزوم على الجوال: يمنع التكبير بالقرص والضغط المزدوج مع إبقاء التمرير */
+html,
+body,
+#root {
+  touch-action: pan-x pan-y;
+  overscroll-behavior: none;
+}
+
+body {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* منطقة سحب لإطار النافذة عند التثبيت كتطبيق على سطح المكتب (Window Controls Overlay) */
+.pwa-titlebar-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.pwa-titlebar-no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+@media (display-mode: standalone) {
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+  .pwa-standalone-only {
+    display: initial;
+  }
+}

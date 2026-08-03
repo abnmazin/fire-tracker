@@ -4,7 +4,7 @@ import {
   Settings, LayoutDashboard, FireExtinguisher, Search, Users,
   CheckCircle, XCircle, ClipboardList, ArrowRightLeft, Archive, Edit, Filter,
   UserPlus, Trash2, Phone, Menu, X, MapPin, DatabaseBackup, Loader2, Calendar,
-  CopyPlus, Target, Activity, History, WifiOff, Printer
+  CopyPlus, Target, Activity, History, WifiOff, Printer, Download
 } from 'lucide-react';
 
 import { initializeApp } from 'firebase/app';
@@ -53,6 +53,86 @@ function useLocalStorage(key, initialValue) {
 
   return [value, setValue];
 }
+
+// ===== نظام المزامنة والأوفلاين =====
+
+const QUEUE_KEY = 'ft_pendingWrites';
+const QUEUE_EVENT = 'ft-queue-changed';
+
+const loadQueue = () => {
+  try {
+    const q = JSON.parse(window.localStorage.getItem(QUEUE_KEY));
+    return Array.isArray(q) ? q : [];
+  } catch (e) { return []; }
+};
+
+const saveQueue = (q) => {
+  try { window.localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch (e) {}
+};
+
+const notifyQueueChanged = () => {
+  try { window.dispatchEvent(new Event(QUEUE_EVENT)); } catch (e) {}
+};
+
+// سجل عملية كتابة/حذف محلية ليتم مزامنتها لاحقاً عند عودة الاتصال.
+// colPath هو المسار بعد data/ مثل 'extinguishers' أو 'app_data'.
+const enqueueWrite = (colPath, id, data) => {
+  const q = loadQueue();
+  q.push({ type: 'set', colPath, id: String(id), data, ts: Date.now() });
+  saveQueue(q);
+  notifyQueueChanged();
+};
+
+const enqueueDelete = (colPath, id) => {
+  const q = loadQueue();
+  q.push({ type: 'delete', colPath, id: String(id), ts: Date.now() });
+  saveQueue(q);
+  notifyQueueChanged();
+};
+
+// إعادة توجيه عملية كتابة/حذف إما إلى فايربيس مباشرة أو إلى صف الانتظار
+const routeWrite = (db, fbUser, appId, colPath, id, data) => {
+  if (db && fbUser) {
+    return setDoc(doc(db, 'artifacts', appId, 'public', 'data', colPath, String(id)), data)
+      .catch(err => console.error("write err:", err));
+  }
+  enqueueWrite(colPath, id, data);
+  return Promise.resolve();
+};
+
+const routeDelete = (db, fbUser, appId, colPath, id) => {
+  if (db && fbUser) {
+    return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', colPath, String(id)))
+      .catch(err => console.error("write err:", err));
+  }
+  enqueueDelete(colPath, id);
+  return Promise.resolve();
+};
+
+// تصفير صف الانتظار ونقل كل العمليات إلى فايربيس دفعة واحدة
+const flushPendingWrites = async (db, fbUser, appId) => {
+  if (!db || !fbUser) return false;
+  const q = loadQueue();
+  if (!q.length) return false;
+  const batch = writeBatch(db);
+  q.forEach(op => {
+    const ref = doc(db, 'artifacts', appId, 'public', 'data', op.colPath, op.id);
+    if (op.type === 'delete') batch.delete(ref);
+    else batch.set(ref, op.data);
+  });
+  try {
+    await batch.commit();
+    saveQueue([]);
+    notifyQueueChanged();
+    return true;
+  } catch (e) {
+    console.error("flush err:", e);
+    return false;
+  }
+};
+
+// توحيد الحروف في اسم المستخدم (تجاهل الكابتل/السمول)
+const normalizeUsername = (s) => String(s || '').trim().toLowerCase();
 
 // Initial location tree: hierarchical structure
 const initialLocationTree = [
@@ -192,7 +272,13 @@ export default function App() {
   const currentUserRef = useRef(currentUser);
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
 
-  const [currentView, setCurrentView] = useState('dashboard');
+  const [currentView, setCurrentView] = useState(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get('view');
+      const valid = ['dashboard', 'list', 'report', 'performance', 'inspectionPolicy', 'archive', 'settings', 'users'];
+      return valid.includes(v) ? v : 'dashboard';
+    } catch (e) { return 'dashboard'; }
+  });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [fbUser, setFbUser] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -210,6 +296,47 @@ export default function App() {
     };
   }, []);
 
+  // ===== إعدادات التطبيق المثبّت (PWA) =====
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isStandalone, setIsStandalone] = useState(() => {
+    try { return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; }
+    catch (e) { return false; }
+  });
+  const [wcoVisible, setWcoVisible] = useState(false);
+
+  useEffect(() => {
+    const onPrompt = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    const onInstalled = () => { setInstallPrompt(null); setIsStandalone(true); };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    const media = window.matchMedia('(display-mode: standalone)');
+    const onDisplayChange = (ev) => setIsStandalone(ev.matches);
+    media.addEventListener('change', onDisplayChange);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+      media.removeEventListener('change', onDisplayChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!('windowControlsOverlay' in navigator)) return;
+    const wco = navigator.windowControlsOverlay;
+    const update = () => setWcoVisible(wco.visible);
+    update();
+    wco.addEventListener('geometrychange', update);
+    return () => wco.removeEventListener('geometrychange', update);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!installPrompt) return;
+    try {
+      installPrompt.prompt();
+      await installPrompt.userChoice;
+    } catch (e) {}
+    setInstallPrompt(null);
+  };
+
   // Detect when coming back online and wait for pending writes to sync
   useEffect(() => {
     if (isOnline && !prevOnline.current && db) {
@@ -217,19 +344,46 @@ export default function App() {
       waitForPendingWrites(db).then(() => {
         setSyncStatus('synced');
         setTimeout(() => setSyncStatus('idle'), 3000);
-      });
+      }).catch(() => setSyncStatus('idle'));
     }
     prevOnline.current = isOnline;
   }, [isOnline, db]);
 
-  // استخدام useState للبيانات لتجنب تضارب التخزين المحلي مع فايربيس
-  const [extinguishers, setExtinguishers] = useState([]);
-  const [users, setUsers] = useState(initialUsers);
-  const [auditLogs, setAuditLogs] = useState([]);
-  const [contacts, setContacts] = useState(initialContacts);
-  const [locationTree, setLocationTree] = useState(initialLocationTree);
-  const [inspectionPolicies, setInspectionPolicies] = useState(initialInspectionPolicies);
-  const [siteSettings, setSiteSettings] = useState({ name: 'مسجد الموسوي الكبير', logoUrl: 'https://preview.redd.it/%D9%85%D8%B3%D8%AC%D8%AF-%D8%A7%D9%84%D9%85%D9%88%D8%B3%D9%88%D9%8A-%D8%A7%D9%84%D9%83%D8%A8%D9%8A%D8%B1-%D9%81%D9%8A-%D8%A7%D9%84%D8%A8%D8%B5%D8%B1%D8%A9-v0-pbunk76bws571.jpg?width=640&crop=smart&auto=webp&s=dcef5b80db948e2e6789f5bfe95f09703af9e6d1' });
+  // تصفير صف الانتظار تلقائياً عند توفر الاتصال والمصادقة
+  useEffect(() => {
+    if (!isOnline || !fbUser || !db) return;
+    if (loadQueue().length === 0) return;
+    setSyncStatus('syncing');
+    flushPendingWrites(db, fbUser, appId).then(done => {
+      setPendingCount(loadQueue().length);
+      if (done) {
+        waitForPendingWrites(db).then(() => {
+          setSyncStatus('synced');
+          setTimeout(() => setSyncStatus('idle'), 3000);
+        }).catch(() => setSyncStatus('idle'));
+      } else {
+        setSyncStatus('idle');
+      }
+    });
+  }, [isOnline, fbUser, db, appId]);
+
+  // بيانات مدعومة بتخزين محلي (localStorage) لضمان العمل أوفلاين والبقاء بعد الريفرش.
+  // فايربيس هو مصدر الحقيقة عند الاتصال (onSnapshot يتجاوز النسخة المحلية).
+  const [extinguishers, setExtinguishers] = useLocalStorage('ft_extinguishers', []);
+  const [users, setUsers] = useLocalStorage('ft_users', initialUsers);
+  const [auditLogs, setAuditLogs] = useLocalStorage('ft_auditLogs', []);
+  const [contacts, setContacts] = useLocalStorage('ft_contacts', initialContacts);
+  const [locationTree, setLocationTree] = useLocalStorage('ft_locations', initialLocationTree);
+  const [inspectionPolicies, setInspectionPolicies] = useLocalStorage('ft_inspectionPolicies', initialInspectionPolicies);
+  const [siteSettings, setSiteSettings] = useLocalStorage('ft_siteSettings', { name: 'مسجد الموسوي الكبير', logoUrl: 'https://preview.redd.it/%D9%85%D8%B3%D8%AC%D8%AF-%D8%A7%D9%84%D9%85%D9%88%D8%B3%D9%88%D9%8A-%D8%A7%D9%84%D9%83%D8%A8%D9%8A%D8%B1-%D9%81%D9%8A-%D8%A7%D9%84%D8%A8%D8%B5%D8%B1%D8%A9-v0-pbunk76bws571.jpg?width=640&crop=smart&auto=webp&s=dcef5b80db948e2e6789f5bfe95f09703af9e6d1' });
+
+  // عدد العمليات المعلقة بانتظار المزامنة
+  const [pendingCount, setPendingCount] = useState(loadQueue().length);
+  useEffect(() => {
+    const handler = () => setPendingCount(loadQueue().length);
+    window.addEventListener(QUEUE_EVENT, handler);
+    return () => window.removeEventListener(QUEUE_EVENT, handler);
+  }, []);
 
   // Compute flat location paths list for use in filters, etc.
   const locationPaths = useMemo(() => getAllLeafPaths(locationTree), [locationTree]);
@@ -245,7 +399,10 @@ export default function App() {
     const initAuth = async () => { try { await signInAnonymously(auth); } catch (e) {} };
     initAuth();
     const unsubscribe = onAuthStateChanged(auth, setFbUser);
-    return () => unsubscribe();
+    // عند عودة الاتصال نحاول تسجيل الدخول من جديد تلقائياً
+    const handleOnline = () => initAuth();
+    window.addEventListener('online', handleOnline);
+    return () => { unsubscribe(); window.removeEventListener('online', handleOnline); };
   }, []);
 
   useEffect(() => {
@@ -314,41 +471,58 @@ export default function App() {
     };
 
     if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(newLog.id)), newLog).catch(err => console.error("write err:", err));
-    else setAuditLogs(prev => [newLog, ...prev]);
+    else { setAuditLogs(prev => [newLog, ...prev]); enqueueWrite('auditLogs', newLog.id, newLog); }
   };
 
   const handleSaveContacts = (newContacts) => {
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'contacts'), { list: newContacts }).catch(err => console.error("write err:", err));
-    else setContacts(newContacts);
+    setContacts(newContacts);
+    routeWrite(db, fbUser, appId, 'app_data', 'contacts', { list: newContacts });
   };
 
   const handleSaveLocations = (newTree) => {
     setLocationTree(newTree);
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: newTree }).catch(err => console.error("write err:", err));
+    routeWrite(db, fbUser, appId, 'app_data', 'locations', { list: newTree });
   };
 
   const handleLocationRename = (newTree, nodeId, oldName, newName) => {
     setLocationTree(newTree);
-    if (!db || !fbUser) return;
-    const oldPath = getNodePath(locationTree, nodeId);
-    const newPath = getNodePath(newTree, nodeId);
-    if (!oldPath || !newPath) return;
-    const batch = writeBatch(db);
-    let count = 0;
-    const updatedExts = extinguishers.map(ext => {
-      if (ext.location === oldPath || ext.location.startsWith(oldPath + ' / ')) {
-        const newLocation = newPath + ext.location.slice(oldPath.length);
-        batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { location: newLocation }, { merge: true });
-        count++;
-        return { ...ext, location: newLocation };
+    if (db && fbUser) {
+      const oldPath = getNodePath(locationTree, nodeId);
+      const newPath = getNodePath(newTree, nodeId);
+      if (!oldPath || !newPath) return;
+      const batch = writeBatch(db);
+      let count = 0;
+      const updatedExts = extinguishers.map(ext => {
+        if (ext.location === oldPath || ext.location.startsWith(oldPath + ' / ')) {
+          const newLocation = newPath + ext.location.slice(oldPath.length);
+          batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { location: newLocation }, { merge: true });
+          count++;
+          return { ...ext, location: newLocation };
+        }
+        return ext;
+      });
+      if (count > 0) {
+        batch.commit().catch(err => console.error("batch err:", err));
+        setExtinguishers(updatedExts);
       }
-      return ext;
-    });
-    if (count > 0) {
-      batch.commit().catch(err => console.error("batch err:", err));
-      setExtinguishers(updatedExts);
+      setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: newTree }).catch(err => console.error("write err:", err));
+    } else {
+      // أوفلاين: نحدّث المواقع محلياً ونسجّل التغيير للطوائف المتأثرة في صف الانتظار
+      const oldPath = getNodePath(locationTree, nodeId);
+      const newPath = getNodePath(newTree, nodeId);
+      if (oldPath && newPath) {
+        const updatedExts = extinguishers.map(ext => {
+          if (ext.location === oldPath || ext.location.startsWith(oldPath + ' / ')) {
+            const newLocation = newPath + ext.location.slice(oldPath.length);
+            enqueueWrite('extinguishers', ext.id, { ...ext, location: newLocation });
+            return { ...ext, location: newLocation };
+          }
+          return ext;
+        });
+        setExtinguishers(updatedExts);
+      }
+      enqueueWrite('app_data', 'locations', { list: newTree });
     }
-    setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'locations'), { list: newTree }).catch(err => console.error("write err:", err));
   };
 
   const handleQuickAddLocation = (parentId, name) => {
@@ -359,7 +533,7 @@ export default function App() {
 
   const handleSaveSiteSettings = (newSettings) => {
     setSiteSettings(newSettings);
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'siteSettings'), newSettings).catch(err => console.error("write err:", err));
+    routeWrite(db, fbUser, appId, 'app_data', 'siteSettings', newSettings);
   };
 
   const navigateTo = (view) => {
@@ -387,7 +561,13 @@ export default function App() {
   };
 
   return (
-    <div className="bg-gray-50 flex flex-col md:flex-row font-sans text-right min-h-screen md:h-screen md:overflow-hidden" dir="rtl">
+    <div className="bg-gray-50 flex flex-col md:flex-row font-sans text-right min-h-screen md:h-screen md:overflow-hidden" dir="rtl" style={wcoVisible ? { paddingTop: 'env(titlebar-area-height, 32px)' } : undefined}>
+      {wcoVisible && (
+        <div className="pwa-titlebar-drag fixed top-0 left-0 right-0 z-[60] flex items-center justify-between bg-red-800 text-white text-sm font-bold px-4" style={{ height: 'env(titlebar-area-height, 32px)', paddingLeft: 'env(titlebar-area-x, 16px)', paddingRight: 'env(titlebar-area-x, 16px)' }}>
+          <span className="truncate">{siteSettings.name}</span>
+          <span className="pwa-titlebar-no-drag text-[11px] text-red-200">Fire Tracker</span>
+        </div>
+      )}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 bg-black/60 z-40 md:hidden transition-opacity" onClick={() => setIsMobileMenuOpen(false)}></div>
       )}
@@ -431,6 +611,11 @@ export default function App() {
           </nav>
 
           <div className="p-4 border-t border-red-700 mt-auto pb-6 md:pb-4 flex flex-col items-center">
+            {installPrompt && !isStandalone && (
+              <button onClick={handleInstallApp} className="flex items-center justify-center w-full p-2.5 text-red-900 bg-white hover:bg-red-100 rounded-lg transition-colors mb-5 font-medium shadow">
+                <Download className="w-5 h-5 ml-2" /> تثبيت التطبيق على الجهاز
+              </button>
+            )}
             <button onClick={() => setCurrentUser(null)} className="flex items-center justify-center w-full p-2.5 text-red-200 hover:text-white bg-red-900/50 hover:bg-red-700 rounded-lg transition-colors mb-5 font-medium">
               <LogOut className="w-5 h-5 ml-2" /> تسجيل الخروج
             </button>
@@ -458,7 +643,7 @@ export default function App() {
         {!isOnline && syncStatus !== 'syncing' && (
           <div className="bg-yellow-500 text-yellow-900 text-center py-2 px-4 text-sm font-bold shrink-0 flex items-center justify-center gap-2">
             <WifiOff className="w-4 h-4 shrink-0" />
-            أنت غير متصل — البيانات تعمل محلياً وستتم المزامنة تلقائياً عند العودة
+            أنت غير متصل — البيانات تعمل محلياً{pendingCount > 0 && <span> ({pendingCount} عملية بانتظار المزامنة)</span>} وستتم المزامنة تلقائياً عند العودة
           </div>
         )}
         <header className="md:hidden bg-red-800 text-white p-4 flex justify-between items-center shadow-md shrink-0 relative z-10">
@@ -474,7 +659,7 @@ export default function App() {
         <main className="flex-1 p-4 md:p-6 overflow-y-auto w-full max-w-full relative z-0 bg-gray-50">
           {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={handleSaveContacts} user={currentUser} locationTree={locationTree} locationPaths={locationPaths} inspectionPolicies={inspectionPolicies} onQuickAddLocation={handleQuickAddLocation} />}
           {currentView === 'list' && <ExtinguishersList extinguishers={extinguishers} setExtinguishers={setExtinguishers} user={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} locationTree={locationTree} locationPaths={locationPaths} contacts={contacts} inspectionPolicies={inspectionPolicies} onQuickAddLocation={handleQuickAddLocation} />}
-          {currentView === 'report' && <ReportPage extinguishers={extinguishers} setExtinguishers={setExtinguishers} user={currentUser} locationTree={locationTree} onQuickAddLocation={handleQuickAddLocation} db={db} fbUser={fbUser} appId={appId} logAction={logAction} auditLogs={auditLogs} />}
+          {currentView === 'report' && <ReportPage extinguishers={extinguishers} setExtinguishers={setExtinguishers} user={currentUser} locationTree={locationTree} onQuickAddLocation={handleQuickAddLocation} db={db} fbUser={fbUser} appId={appId} logAction={logAction} auditLogs={auditLogs} setAuditLogs={setAuditLogs} />}
           {currentView === 'users' && <UsersList users={users} setUsers={setUsers} currentUser={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} />}
           {currentView === 'performance' && <PerformanceReport auditLogs={auditLogs} userRole={currentUser.role} db={db} fbUser={fbUser} appId={appId} setAuditLogs={setAuditLogs} />}
           {currentView === 'inspectionPolicy' && <InspectionPolicyCenter topLevelLocations={topLevelLocations} inspectionPolicies={inspectionPolicies} setInspectionPolicies={setInspectionPolicies} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
@@ -501,7 +686,7 @@ function LoginScreen({ onLogin, users, siteSettings }) {
 
   const handleLogin = (e) => {
     e.preventDefault();
-    const user = users.find(u => !u.archived && u.username.toLowerCase() === username.toLowerCase() && u.password === password);
+    const user = users.find(u => !u.archived && normalizeUsername(u.username) === normalizeUsername(username) && u.password === password);
     if (user) onLogin(user);
     else setError('اسم المستخدم أو كلمة المرور غير صحيحة.');
   };
@@ -643,7 +828,7 @@ function Dashboard({ extinguishers, contacts, setContacts, user, locationTree, l
   );
 }
 
-function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQuickAddLocation, db, fbUser, appId, logAction, auditLogs }) {
+function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQuickAddLocation, db, fbUser, appId, logAction, auditLogs, setAuditLogs }) {
   const [filterMainLocation, setFilterMainLocation] = useState('All');
   const [filterSubLocation, setFilterSubLocation] = useState('All');
   const [filterType, setFilterType] = useState('All');
@@ -745,18 +930,16 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
   const toggleSub = (mainLoc, subLoc) => { const key = `${mainLoc}||${subLoc}`; setExpandedSubs(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; }); };
 
   const handleCartTransfer = () => {
-    if (!db || !fbUser || cartItems.length === 0 || !cartTargetLocation) return;
+    if (cartItems.length === 0 || !cartTargetLocation) return;
     const allIds = cartItems.flatMap(item => item.extIds);
-    const batch = writeBatch(db);
     const extList = [];
     allIds.forEach(id => {
       const ext = extinguishers.find(e => String(e.id) === String(id));
       if (ext) {
-        batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, location: cartTargetLocation });
+        routeWrite(db, fbUser, appId, 'extinguishers', ext.id, { ...ext, location: cartTargetLocation });
         extList.push(ext);
       }
     });
-    batch.commit().catch(err => console.error("batch err:", err));
     setExtinguishers(prev => prev.map(e => allIds.includes(e.id) ? { ...e, location: cartTargetLocation } : e));
     const fromLocation = extList.length > 0 ? extList[0].location : '—';
     logAction('نقل', JSON.stringify({ ids: allIds, numbers: extList.map(e => e.number), fromLocation, toLocation: cartTargetLocation, count: allIds.length }));
@@ -781,14 +964,16 @@ function ReportPage({ extinguishers, setExtinguishers, user, locationTree, onQui
     try { details = JSON.parse(log.details); } catch { return; }
     if (!details || !details.ids || !details.fromLocation) return;
     const targetLocation = details.fromLocation;
+    const nowStr = new Date().toLocaleString('ar-EG');
+    details.ids.forEach(id => {
+      const ext = extinguishers.find(e => String(e.id) === String(id));
+      if (ext) routeWrite(db, fbUser, appId, 'extinguishers', id, { ...ext, location: targetLocation });
+    });
     if (db && fbUser) {
-      const batch = writeBatch(db);
-      details.ids.forEach(id => {
-        const ext = extinguishers.find(e => String(e.id) === String(id));
-        if (ext) batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(id)), { ...ext, location: targetLocation });
-      });
-      batch.commit().catch(err => console.error("undo err:", err));
-      updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(log.id)), { undone: true, undoDate: new Date().toLocaleString('ar-EG') }).catch(err => console.error("update err:", err));
+      updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(log.id)), { undone: true, undoDate: nowStr }).catch(err => console.error("update err:", err));
+    } else {
+      setAuditLogs(prev => prev.map(l => l.id === log.id ? { ...l, undone: true, undoDate: nowStr } : l));
+      enqueueWrite('auditLogs', log.id, { ...log, undone: true, undoDate: nowStr });
     }
     setExtinguishers(prev => prev.map(e => details.ids.includes(e.id) ? { ...e, location: targetLocation } : e));
     logAction('تراجع عن نقل', JSON.stringify({ ids: details.ids, numbers: details.numbers, fromLocation: details.toLocation, toLocation: targetLocation, count: details.count, originalLogId: log.id }));
@@ -1328,8 +1513,8 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
   const handleAddExtinguisher = (newExt) => {
     const newId = activeExtinguishers.length ? Math.max(...activeExtinguishers.map(e=>Number(e.id))) + 1 : 1;
     const extWithDates = { ...newExt, id: newId, nextDate: calculateNextDate(newExt.lastDate), lastInspection: newExt.lastDate, status: calculateStatus(calculateNextDate(newExt.lastDate), newExt.lastDate), archived: false };
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(newId)), extWithDates).catch(err => console.error("write err:", err));
-    else setExtinguishers(prev => [...prev, extWithDates]);
+    setExtinguishers(prev => [...prev, extWithDates]);
+    routeWrite(db, fbUser, appId, 'extinguishers', newId, extWithDates);
     setShowAddModal(false);
     logAction('إضافة طفاية', `إضافة طفاية ${newExt.number} في ${newExt.location}`);
   };
@@ -1371,6 +1556,8 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
         batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(updatedExt.id)), updatedExt);
       });
       batch.commit().catch(err => console.error("write err:", err));
+    } else {
+      newExts.filter(e => extIds.includes(e.id)).forEach(updatedExt => enqueueWrite('extinguishers', updatedExt.id, updatedExt));
     }
 
     const actionName = isMaintenance ? 'صيانة شاملة' : 'فحص يومي';
@@ -1382,8 +1569,8 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
 
   const handleEdit = (updatedExt) => {
     const extWithDates = { ...updatedExt, nextDate: calculateNextDate(updatedExt.lastDate), status: calculateStatus(calculateNextDate(updatedExt.lastDate), updatedExt.lastInspection) };
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(updatedExt.id)), extWithDates).catch(err => console.error("write err:", err));
-    else setExtinguishers(prev => prev.map(e => e.id === updatedExt.id ? extWithDates : e));
+    setExtinguishers(prev => prev.map(e => e.id === updatedExt.id ? extWithDates : e));
+    routeWrite(db, fbUser, appId, 'extinguishers', updatedExt.id, extWithDates);
     logAction('تعديل طفاية', `تعديل بيانات الطفاية ${updatedExt.number}`);
     setEditModalData(null);
   };
@@ -1395,7 +1582,10 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
       const batch = writeBatch(db);
       extsToTransfer.forEach(ext => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, location: newLocation }));
       batch.commit().catch(err => console.error("write err:", err));
-    } else { setExtinguishers(prev => prev.map(e => extIds.includes(e.id) ? { ...e, location: newLocation } : e)); }
+    } else {
+      extsToTransfer.forEach(ext => enqueueWrite('extinguishers', ext.id, { ...ext, location: newLocation }));
+      setExtinguishers(prev => prev.map(e => extIds.includes(e.id) ? { ...e, location: newLocation } : e));
+    }
     logAction('نقل', JSON.stringify({ ids: extIds, numbers: extsToTransfer.map(e=>e.number), fromLocation, toLocation: newLocation, count: extIds.length }));
     setTransferModalData(null); setSelectedIds([]); 
   };
@@ -1407,7 +1597,10 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
       const batch = writeBatch(db);
       extsToDelete.forEach(ext => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, archived: true }));
       batch.commit().catch(err => console.error("write err:", err));
-    } else { setExtinguishers(prev => prev.map(e => selectedIds.includes(e.id) ? { ...e, archived: true } : e)); }
+    } else {
+      extsToDelete.forEach(ext => enqueueWrite('extinguishers', ext.id, { ...ext, archived: true }));
+      setExtinguishers(prev => prev.map(e => selectedIds.includes(e.id) ? { ...e, archived: true } : e));
+    }
     logAction('أرشفة طفايات', `تمت أرشفة (${selectedIds.length}) طفاية: ${extsToDelete.map(e=>e.number).join('، ')}`);
     setSelectedIds([]);
     setConfirmDialog(null);
@@ -1592,6 +1785,8 @@ function ExtinguisherHistoryModal({ ext, onClose, userRole, db, fbUser, appId, s
 
     if (db && fbUser) {
       setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), updatedExt).catch(err => console.error("write err:", err));
+    } else {
+      enqueueWrite('extinguishers', ext.id, updatedExt);
     }
 
     logAction('تصفير سجل الطفاية', `تم تصفير سجل الطفاية ${ext.number}`);
@@ -1893,8 +2088,8 @@ function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId 
   const handleAddUser = (newUser) => {
     const newId = activeUsers.length ? Math.max(...activeUsers.map(u => Number(u.id))) + 1 : 1;
     const userObj = { ...newUser, id: newId, archived: false };
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(newId)), userObj).catch(err => console.error("write err:", err));
-    else setUsers([...users, userObj]);
+    setUsers([...users, userObj]);
+    routeWrite(db, fbUser, appId, 'users', newId, userObj);
     setShowAddModal(false);
     logAction('إضافة مستخدم', `إضافة حساب "${newUser.name}"`);
   };
@@ -1903,14 +2098,14 @@ function UsersList({ users, setUsers, currentUser, logAction, db, fbUser, appId 
     if (id === currentUser.id) return; 
     const userToArchive = users.find(u => u.id === id);
     if (!userToArchive) return;
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(id)), { ...userToArchive, archived: true }).catch(err => console.error("write err:", err));
-    else setUsers(users.map(u => u.id === id ? { ...u, archived: true } : u));
+    setUsers(users.map(u => u.id === id ? { ...u, archived: true } : u));
+    routeWrite(db, fbUser, appId, 'users', id, { ...userToArchive, archived: true });
     logAction('أرشفة مستخدم', `أرشفة حساب "${name}"`);
   };
 
   const handleEditUser = (updatedUser) => {
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(updatedUser.id)), updatedUser).catch(err => console.error("write err:", err));
-    else setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    routeWrite(db, fbUser, appId, 'users', updatedUser.id, updatedUser);
     logAction('تعديل مستخدم', `تعديل بيانات حساب "${updatedUser.name}"`);
     setEditModalUser(null);
   };
@@ -2130,8 +2325,8 @@ function PerformanceReport({ auditLogs, userRole, db, fbUser, appId, setAuditLog
 
   const handleDeleteLog = (logId) => {
     if (!canDeleteLogs) return;
-    if (db && fbUser) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(logId))).catch(err => console.error("write err:", err));
-    else setAuditLogs(prev => prev.filter(log => log.id !== logId));
+    setAuditLogs(prev => prev.filter(log => log.id !== logId));
+    routeDelete(db, fbUser, appId, 'auditLogs', logId);
   };
 
   return (
@@ -2263,8 +2458,8 @@ function InspectionPolicyCenter({ topLevelLocations, inspectionPolicies, setInsp
       startDate: p.startDate || defaultStartDate
     }));
 
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_data', 'inspectionPolicies'), { list: normalized }).catch(err => console.error("write err:", err));
-    else setInspectionPolicies(normalized);
+    setInspectionPolicies(normalized);
+    routeWrite(db, fbUser, appId, 'app_data', 'inspectionPolicies', { list: normalized });
 
     logAction('سياسات الفحص', 'تم تحديث سياسات الفحص حسب الأقسام.');
   };
@@ -2430,38 +2625,29 @@ function ArchiveCenter({ extinguishers, setExtinguishers, users, setUsers, db, f
   const canManageAll = currentUser.role === 'developer';
 
   const restoreOneExt = (ext) => {
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, archived: false }).catch(err => console.error("write err:", err));
-    else setExtinguishers(prev => prev.map(e => e.id === ext.id ? { ...e, archived: false } : e));
+    setExtinguishers(prev => prev.map(e => e.id === ext.id ? { ...e, archived: false } : e));
+    routeWrite(db, fbUser, appId, 'extinguishers', ext.id, { ...ext, archived: false });
     logAction('استعادة مؤرشف', `استعادة الطفاية ${ext.number}`);
   };
 
   const restoreAllExts = () => {
     if (archivedExts.length === 0) return;
-    if (db && fbUser) {
-      const batch = writeBatch(db);
-      archivedExts.forEach(ext => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), { ...ext, archived: false }));
-      batch.commit().catch(err => console.error("write err:", err));
-    }
-    else setExtinguishers(prev => prev.map(e => e.archived ? { ...e, archived: false } : e));
+    setExtinguishers(prev => prev.map(e => e.archived ? { ...e, archived: false } : e));
+    archivedExts.forEach(ext => routeWrite(db, fbUser, appId, 'extinguishers', ext.id, { ...ext, archived: false }));
     logAction('استعادة مؤرشف', `تم استعادة ${archivedExts.length} طفاية مؤرشفة.`);
   };
 
   const deleteOneArchivedExt = (ext) => {
     if (currentUser.role !== 'developer') return;
-    if (db && fbUser) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))).catch(err => console.error("write err:", err));
-    else setExtinguishers(prev => prev.filter(e => e.id !== ext.id));
+    setExtinguishers(prev => prev.filter(e => e.id !== ext.id));
+    routeDelete(db, fbUser, appId, 'extinguishers', ext.id);
     logAction('حذف من الأرشيف', `حذف الطفاية ${ext.number} نهائياً من الأرشيف.`);
   };
 
   const deleteAllArchivedExts = () => {
     if (!canManageAll || archivedExts.length === 0) return;
-    if (db && fbUser) {
-      const batch = writeBatch(db);
-      archivedExts.forEach(ext => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))));
-      batch.commit().catch(err => console.error("write err:", err));
-    } else {
-      setExtinguishers(prev => prev.filter(e => !e.archived));
-    }
+    setExtinguishers(prev => prev.filter(e => !e.archived));
+    archivedExts.forEach(ext => routeDelete(db, fbUser, appId, 'extinguishers', ext.id));
     logAction('حذف من الأرشيف', `تم حذف ${archivedExts.length} طفاية نهائياً من الأرشيف.`);
   };
 
@@ -2530,42 +2716,29 @@ function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, co
   const archivedUsers = useMemo(() => users.filter(u => u.archived), [users]);
 
   const restoreOneUser = (u) => {
-    if (db && fbUser) setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(u.id)), { ...u, archived: false }).catch(err => console.error("write err:", err));
-    else setUsers(prev => prev.map(x => x.id === u.id ? { ...x, archived: false } : x));
+    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, archived: false } : x));
+    routeWrite(db, fbUser, appId, 'users', u.id, { ...u, archived: false });
     logAction('استعادة مؤرشف', `استعادة المستخدم ${u.name}`);
   };
 
   const restoreAllUsers = () => {
     if (archivedUsers.length === 0) return;
-    if (db && fbUser) {
-      const batch = writeBatch(db);
-      archivedUsers.forEach(u => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'users', String(u.id)), { ...u, archived: false }));
-      batch.commit().catch(err => console.error("write err:", err));
-    }
-    else setUsers(prev => prev.map(u => u.archived ? { ...u, archived: false } : u));
+    setUsers(prev => prev.map(u => u.archived ? { ...u, archived: false } : u));
+    archivedUsers.forEach(u => routeWrite(db, fbUser, appId, 'users', u.id, { ...u, archived: false }));
     logAction('استعادة مؤرشف', `تم استعادة ${archivedUsers.length} مستخدم مؤرشف.`);
   };
 
   if (currentUser.role !== 'developer') return <div className="p-8 text-center text-red-500">خاص بالمطورين فقط.</div>;
 
   const executeWipeData = () => {
-    if (db && fbUser) {
-      const batch = writeBatch(db);
-      extinguishers.forEach(ext => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id))));
-      batch.commit().catch(err => console.error("write err:", err));
-    }
-    else { window.localStorage.setItem('fireTracker_extinguishers', '[]'); window.location.reload(); }
+    setExtinguishers([]);
+    extinguishers.forEach(ext => routeDelete(db, fbUser, appId, 'extinguishers', ext.id));
     logAction('تهيئة النظام', 'تم مسح قاعدة بيانات الطفايات بالكامل.');
   };
 
   const executeClearPerformanceLogs = () => {
-    if (db && fbUser) {
-      const batch = writeBatch(db);
-      auditLogs.forEach(log => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'auditLogs', String(log.id))));
-      batch.commit().catch(err => console.error("write err:", err));
-    } else {
-      setAuditLogs([]);
-    }
+    setAuditLogs([]);
+    auditLogs.forEach(log => routeDelete(db, fbUser, appId, 'auditLogs', log.id));
     logAction('تصفير سجل الإنجاز', 'تم تصفير جميع سجلات الإنجاز لكل المستخدمين.');
   };
 
@@ -2600,13 +2773,8 @@ function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, co
       });
     }
 
-    if (db && fbUser) {
-       const batch = writeBatch(db);
-       newExts.forEach(ext => batch.set(doc(db, 'artifacts', appId, 'public', 'data', 'extinguishers', String(ext.id)), ext));
-       batch.commit().catch(err => console.error("write err:", err));
-    } else {
-       setExtinguishers(prev => [...prev, ...newExts]);
-    }
+    setExtinguishers(prev => [...prev, ...newExts]);
+    newExts.forEach(ext => routeWrite(db, fbUser, appId, 'extinguishers', ext.id, ext));
     
     logAction('إضافة جماعية', `تم إنشاء ${endNum - startNum + 1} طفاية جديدة بأرقام EXT-${String(startNum).padStart(3, '0')} إلى EXT-${String(endNum).padStart(3, '0')} في ${locationPath}.`);
   };
@@ -2622,7 +2790,10 @@ function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, co
     const invalidExtData = activeExts.filter(e => !e.number || !e.type || !e.size || !e.location || !e.lastDate).map(e => e.number || `ID:${e.id}`);
 
     const usernameCount = new Map();
-    activeUsers.forEach(u => usernameCount.set((u.username || '').toLowerCase(), (usernameCount.get((u.username || '').toLowerCase()) || 0) + 1));
+    activeUsers.forEach(u => {
+      const key = normalizeUsername(u.username);
+      usernameCount.set(key, (usernameCount.get(key) || 0) + 1);
+    });
     const duplicateUsernames = [...usernameCount.entries()].filter(([k, count]) => k && count > 1).map(([k]) => k);
 
     const invalidPhones = (contacts || []).filter(c => !/^0\d{10}$/.test(String(c.phone || '').trim())).map(c => `${c.name}: ${c.phone}`);
