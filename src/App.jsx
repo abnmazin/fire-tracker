@@ -3502,7 +3502,6 @@ function DeveloperSettings({ locationTree, setLocationTree, onRenameLocation, co
             <ul className="list-disc pr-5 mt-1 space-y-0.5">
               <li>على الآيفون: يجب تثبيت التطبيق من Safari (مشاركة ← إضافة إلى الشاشة الرئيسية) — الإشعارات تعمل فقط على النسخة المثبّتة (iOS 16.4+).</li>
               <li>الصوت: يصدر صوت النظام فقط، ولا يعمل إذا كان الهاتف على الصامت.</li>
-              <li>إعداد الإرسال يتطلب مفاتيح VAPID (متغير VITE_FCM_VAPID_KEY) ودالة خادم FCM — انظر docs/NOTIFICATIONS.md.</li>
             </ul>
           </div>
         </div>
