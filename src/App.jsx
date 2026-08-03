@@ -662,6 +662,10 @@ export default function App() {
     activeExtWithStatus.forEach(e => { snapshot[e.id] = e.status; });
     if (prevNotifStatus.current === null) { prevNotifStatus.current = snapshot; return; }
 
+    const prev = prevNotifStatus.current;
+    prevNotifStatus.current = snapshot;
+    if (siteSettings.autoNotifs === false) return;
+
     const extName = (e) => `${e.type === 'Powder' ? 'بودرة' : e.type === 'Foam' ? 'رغوة' : e.type === 'CO2' ? 'CO2' : e.type === 'Water' ? 'ماء' : (e.type || '')} ${e.size || ''}`.trim();
     const sendOnce = (key, title, body) => {
       try {
@@ -674,16 +678,15 @@ export default function App() {
     };
 
     activeExtWithStatus.forEach(e => {
-      const prev = prevNotifStatus.current[e.id];
-      if (prev !== undefined && prev !== e.status && e.status !== 'صالحة') {
+      const prevStatus = prev[e.id];
+      if (prevStatus !== undefined && prevStatus !== e.status && e.status !== 'صالحة') {
         sendOnce(`status:${e.id}:${e.status}`, 'تنبيه حالة طفاية', `${extName(e)} — ${e.location}\nالحالة الجديدة: ${e.status}`);
       }
       if (e.nextDate && (e.status === 'تحتاج صيانة' || e.status === 'صيانة قريبة')) {
         sendOnce(`exp:${e.id}:${e.nextDate}`, 'تنبيه انتهاء طفاية', `${extName(e)} — ${e.location}\nتاريخ الانتهاء: ${formatDisplayDate(e.nextDate)}`);
       }
     });
-    prevNotifStatus.current = snapshot;
-  }, [activeExtWithStatus, db, appId]);
+  }, [activeExtWithStatus, db, appId, siteSettings.autoNotifs]);
 
   if (!currentUser) return <LoginScreen onLogin={setCurrentUser} users={users} siteSettings={siteSettings} />;
 
@@ -839,7 +842,7 @@ export default function App() {
           {currentView === 'performance' && <PerformanceReport auditLogs={auditLogs} userRole={currentUser.role} db={db} fbUser={fbUser} appId={appId} setAuditLogs={setAuditLogs} />}
           {currentView === 'inspectionPolicy' && <InspectionPolicyCenter topLevelLocations={topLevelLocations} inspectionPolicies={inspectionPolicies} setInspectionPolicies={setInspectionPolicies} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
           {currentView === 'archive' && <ArchiveCenter extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} />}
-          {currentView === 'notifications' && <NotificationsPage notifSupported={notifSupported} notifToken={notifToken} notifBusy={notifBusy} notifMsg={notifMsg} onEnableNotif={handleEnableNotif} onDisableNotif={handleDisableNotif} notifications={notifications} db={db} appId={appId} user={currentUser} canSend={(currentUser.role === 'developer' || currentUser.role === 'father' || currentUser.role === 'admin')} customNotif={customNotif} setCustomNotif={setCustomNotif} customNotifResult={customNotifResult} onCustomNotifSend={handleCustomNotifSend} />}
+          {currentView === 'notifications' && <NotificationsPage notifSupported={notifSupported} notifToken={notifToken} notifBusy={notifBusy} notifMsg={notifMsg} onEnableNotif={handleEnableNotif} onDisableNotif={handleDisableNotif} notifications={notifications} db={db} appId={appId} user={currentUser} canSend={(currentUser.role === 'developer' || currentUser.role === 'father' || currentUser.role === 'admin')} customNotif={customNotif} setCustomNotif={setCustomNotif} customNotifResult={customNotifResult} onCustomNotifSend={handleCustomNotifSend} autoNotifs={siteSettings.autoNotifs !== false} onToggleAutoNotifs={(v) => handleSaveSiteSettings({ ...siteSettings, autoNotifs: v })} />}
           {currentView === 'settings' && <DeveloperSettings locationTree={locationTree} setLocationTree={handleSaveLocations} onRenameLocation={handleLocationRename} contacts={contacts} auditLogs={auditLogs} setAuditLogs={setAuditLogs} extinguishers={extinguishers} setExtinguishers={setExtinguishers} users={users} setUsers={setUsers} db={db} fbUser={fbUser} appId={appId} logAction={logAction} currentUser={currentUser} siteSettings={siteSettings} setSiteSettings={handleSaveSiteSettings} topLevelLocations={topLevelLocations} />}
         </main>
       </div>
@@ -868,8 +871,9 @@ function SidebarBtn({ icon: Icon, label, active, onClick }) {
   );
 }
 
-function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, onEnableNotif, onDisableNotif, notifications, db, appId, user, canSend, customNotif, setCustomNotif, customNotifResult, onCustomNotifSend }) {
+function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, onEnableNotif, onDisableNotif, notifications, db, appId, user, canSend, customNotif, setCustomNotif, customNotifResult, onCustomNotifSend, autoNotifs, onToggleAutoNotifs }) {
   const [popup, setPopup] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const kindBadge = (kind) => {
     if (kind === 'status') return <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">تنبيه تلقائي</span>;
@@ -887,13 +891,38 @@ function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, on
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       <div className="bg-white rounded-xl shadow-sm p-4 md:p-6 border border-gray-200">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-red-100 text-red-700 flex items-center justify-center"><Bell className="w-5 h-5" /></div>
-          <div>
-            <h2 className="font-bold text-gray-800">الإشعارات</h2>
-            <p className="text-xs text-gray-500">فعّل أو أوقف استقبال الإشعارات وشاهد سجل الإشعارات</p>
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-red-100 text-red-700 flex items-center justify-center"><Bell className="w-5 h-5" /></div>
+            <div>
+              <h2 className="font-bold text-gray-800">الإشعارات</h2>
+              <p className="text-xs text-gray-500">فعّل أو أوقف استقبال الإشعارات وشاهد سجل الإشعارات</p>
+            </div>
           </div>
+          {user.role === 'developer' && (
+            <button onClick={() => setShowSettings(s => !s)} className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-colors shrink-0">
+              <Settings className="w-4 h-4" /> إعدادات
+            </button>
+          )}
         </div>
+        {user.role === 'developer' && showSettings && (
+          <div className="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-gray-800">الإشعارات التلقائية</p>
+                <p className="text-xs text-gray-500 mt-0.5">إشعارات تغيّر حالة الطفايات وتنبيهات الانتهاء القريب تُرسل تلقائياً بواسطة النظام</p>
+              </div>
+              <button
+                onClick={() => onToggleAutoNotifs(!autoNotifs)}
+                className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${autoNotifs ? 'bg-emerald-600' : 'bg-gray-300'}`}
+                aria-pressed={autoNotifs}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${autoNotifs ? 'left-0.5' : 'right-0.5'}`} />
+              </button>
+            </div>
+            <p className={`text-xs mt-2 font-medium ${autoNotifs ? 'text-emerald-700' : 'text-amber-700'}`}>{autoNotifs ? '● مفعّلة — سيتم إرسال التنبيهات التلقائية عند تغيّر الحالة أو قرب الانتهاء' : '○ متوقفة — لن تُرسل أي تنبيهات تلقائية'}</p>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           {notifSupported ? (
             notifToken ? (
@@ -985,7 +1014,7 @@ function TimeLabel({ at }) {
   useEffect(() => {
     let t;
     t = setTimeout(() => {
-      try { setLabel(new Date(at).toLocaleString('ar-IQ', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })); } catch { setLabel(''); }
+      try { setLabel(new Date(at).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })); } catch { setLabel(''); }
     }, 0);
     return () => clearTimeout(t);
   }, [at]);
@@ -3103,13 +3132,6 @@ function PerformanceReport({ auditLogs, userRole, db, fbUser, appId, setAuditLog
     const days = new Set(logsWithDay.map(log => log.dayStr).filter(Boolean));
     return [...days];
   }, [logsWithDay]);
-
-  useEffect(() => {
-    const todayStr = formatDisplayDate(new Date());
-    if (selectedDay === 'All' && availableDays.includes(todayStr)) {
-      setSelectedDay(todayStr);
-    }
-  }, [availableDays, selectedDay]);
 
   const filteredLogs = useMemo(() => {
     if (selectedDay === 'All') return logsWithDay;
