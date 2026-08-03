@@ -7,6 +7,12 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+      },
       includeAssets: ['vite.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-192.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'],
       manifest: {
         id: 'fire-tracker',
@@ -35,20 +41,6 @@ export default defineConfig({
           { name: 'الطفايات', short_name: 'الطفايات', url: '/?view=list', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
           { name: 'التقارير', short_name: 'التقارير', url: '/?view=report', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
           { name: 'فريق العمل', short_name: 'الفريق', url: '/?view=users', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
-        ],
-      },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'firestore-cache',
-              expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 },
-              networkTimeoutSeconds: 5,
-            },
-          },
         ],
       },
     }),
