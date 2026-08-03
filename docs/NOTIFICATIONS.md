@@ -12,6 +12,8 @@ The app ships with a full Web-Push notification system built on Firebase Cloud M
 
 Deduplication: each (extinguisher, status) transition and each (extinguisher, expiry date) is sent at most once (stored in `localStorage ft_notif_sent`).
 
+> **Required file:** FCM's `getToken()` registers its own service worker at `/firebase-messaging-sw.js`. That file is provided in the repo (`public/firebase-messaging-sw.js`, using the compat SDK via the gstatic CDN) and is served as a static asset — it must be deployed with the rest of the app or token registration fails with `messaging/failed-service-worker-registration`.
+
 ## What needs setup for real push (app closed / other devices)
 Real push (delivered even when the app is closed) requires three pieces:
 
