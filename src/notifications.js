@@ -34,7 +34,7 @@ export const subscribeForeground = async (fbApp, onNotify) => {
   const m = await getMessagingInstance(fbApp);
   if (cleanupForeground) cleanupForeground();
   cleanupForeground = onMessage(m, (payload) => {
-    const title = payload?.notification?.title || 'Fire Tracker';
+    const title = payload?.notification?.title || 'لجنة السلامة';
     const body = payload?.notification?.body || '';
     const data = payload?.data || {};
     onNotify({ title, body, url: data.url || '/' });

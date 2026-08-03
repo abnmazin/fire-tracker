@@ -16,8 +16,8 @@ export default defineConfig({
       includeAssets: ['vite.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-192.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'],
       manifest: {
         id: 'fire-tracker',
-        name: 'Fire Tracker - مسجل الطفايات',
-        short_name: 'Fire Tracker',
+        name: 'لجنة السلامة',
+        short_name: 'لجنة السلامة',
         description: 'نظام إدارة ومتابعة طفايات الحريق',
         lang: 'ar',
         dir: 'rtl',

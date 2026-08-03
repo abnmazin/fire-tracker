@@ -718,7 +718,7 @@ export default function App() {
       {wcoVisible && (
         <div className="pwa-titlebar-drag fixed top-0 left-0 right-0 z-[60] flex items-center justify-between bg-red-800 text-white text-sm font-bold px-4" style={{ height: 'env(titlebar-area-height, 32px)', paddingLeft: 'env(titlebar-area-x, 16px)', paddingRight: 'env(titlebar-area-x, 16px)' }}>
           <span className="truncate">{siteSettings.name}</span>
-          <span className="pwa-titlebar-no-drag text-[11px] text-red-200">Fire Tracker</span>
+          <span className="pwa-titlebar-no-drag text-[11px] text-red-200">لجنة السلامة</span>
         </div>
       )}
       {isMobileMenuOpen && (

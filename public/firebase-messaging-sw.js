@@ -39,5 +39,5 @@ messaging.onBackgroundMessage((payload) => {
     badge: '/icons/icon-192.png',
     data: { url: data.url || '/' },
   };
-  return self.registration.showNotification(notification.title || 'Fire Tracker', options);
+  return self.registration.showNotification(notification.title || 'لجنة السلامة', options);
 });

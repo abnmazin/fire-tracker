@@ -80,7 +80,7 @@ export default async function handler(req, res) {
 
     const accessToken = await getAccessToken(sa);
     const notification = {
-      title: String(body.title || 'Fire Tracker'),
+      title: String(body.title || 'لجنة السلامة'),
       body: String(body.body || ''),
     };
     const data = {};

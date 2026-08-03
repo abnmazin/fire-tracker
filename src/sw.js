@@ -21,7 +21,7 @@ self.addEventListener('push', (event) => {
   try { payload = event.data ? event.data.json() : {} } catch { payload = {} }
   const notification = payload.notification || {}
   const data = payload.data || {}
-  const title = notification.title || 'Fire Tracker'
+  const title = notification.title || 'لجنة السلامة'
   const options = {
     body: notification.body || '',
     icon: notification.icon || '/icons/icon-192.png',
