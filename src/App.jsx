@@ -265,6 +265,8 @@ const d8MonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 
 
 // عرض موحد للتاريخ بصيغة أرقام يوم-شهر-سنة (مثال: 03-08-2026)
 const pad2 = (n) => String(n).padStart(2, '0');
+const to12Hour = (h) => { const hour = h % 12 || 12; return `${pad2(hour)}:${pad2(arguments[1] ?? 0)}`; };
+const formatAmPm = (h) => h >= 12 ? 'م' : 'ص';
 const formatDisplayDate = (dateStr) => {
   if (!dateStr) return '';
   const s = String(dateStr).trim();
@@ -279,10 +281,16 @@ const formatDisplayDate = (dateStr) => {
 const formatDisplayDateTime = (dateStr) => {
   if (!dateStr) return '';
   const s = String(dateStr).trim();
-  if (/^\d{2}-\d{2}-\d{4}\s\d{2}:\d{2}$/.test(s)) return s;
+  if (/^\d{2}-\d{2}-\d{4}\s\d{2}:\d{2}$/.test(s)) {
+    const [datePart, timePart] = s.split(' ');
+    const [hh, mm] = timePart.split(':').map(Number);
+    const hour12 = hh % 12 || 12;
+    return `${datePart} ${pad2(hour12)}:${pad2(mm)} ${formatAmPm(hh)}`;
+  }
   const d = new Date(s);
   if (isNaN(d.getTime())) return s;
-  return `${formatDisplayDate(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const hour12 = d.getHours() % 12 || 12;
+  return `${formatDisplayDate(d)} ${pad2(hour12)}:${pad2(d.getMinutes())} ${formatAmPm(d.getHours())}`;
 };
 // تحويل أي صيغة يوم مخزنة (مثل 3/8/2026) إلى dd-mm-yyyy
 const normalizeDayStr = (str) => {
@@ -299,12 +307,22 @@ const normalizeDayStr = (str) => {
 const formatLogDate = (str) => {
   if (!str) return '';
   const s = String(str).trim();
-  if (/^\d{2}-\d{2}-\d{4}(\s\d{2}:\d{2})?$/.test(s)) return s;
+  if (/^\d{2}-\d{2}-\d{4}\s\d{2}:\d{2}$/.test(s)) {
+    const [datePart, timePart] = s.split(' ');
+    const [hh, mm] = timePart.split(':').map(Number);
+    const hour12 = hh % 12 || 12;
+    return `${datePart} ${pad2(hour12)}:${pad2(mm)} ${formatAmPm(hh)}`;
+  }
+  if (/^\d{2}-\d{2}-\d{4}$/.test(s)) return s;
   const parts = s.split(/[،,]/);
   const day = normalizeDayStr(parts[0]);
   if (!day) return s;
   const tm = parts[1] ? parts[1].trim().match(/(\d{1,2}):(\d{2})/) : null;
-  if (tm) return `${day} ${pad2(Number(tm[1]))}:${tm[2]}`;
+  if (tm) {
+    const hh = Number(tm[1]);
+    const hour12 = hh % 12 || 12;
+    return `${day} ${pad2(hour12)}:${tm[2]} ${formatAmPm(hh)}`;
+  }
   return day;
 };
 
@@ -1034,7 +1052,13 @@ function TimeLabel({ at }) {
   useEffect(() => {
     let t;
     t = setTimeout(() => {
-      try { setLabel(new Date(at).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })); } catch { setLabel(''); }
+      try {
+        const d = new Date(at);
+        const hour12 = d.getHours() % 12 || 12;
+        const mm = pad2(d.getMinutes());
+        const ap = d.getHours() >= 12 ? 'م' : 'ص';
+        setLabel(`${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(hour12)}:${mm} ${ap}`);
+      } catch { setLabel(''); }
     }, 0);
     return () => clearTimeout(t);
   }, [at]);
@@ -3383,7 +3407,7 @@ function InspectionPolicyCenter({ topLevelLocations, inspectionPolicies, setInsp
               <div>
                 <div className="font-bold text-gray-800 text-sm">{policy.location}</div>
                 <div className="text-xs text-gray-500 mt-1">
-                  {policy.enabled ? `كل ${Math.max(1, Number(policy.intervalDays) || 1)} يوم - من ${policy.startDate || defaultStartDate}` : 'غير مفعلة'}
+                  {policy.enabled ? `كل ${Math.max(1, Number(policy.intervalDays) || 1)} يوم - من ${formatDisplayDate(policy.startDate || defaultStartDate)}` : 'غير مفعلة'}
                 </div>
               </div>
               <span className={`text-xs px-3 py-1 rounded-full font-bold border ${policy.enabled ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
