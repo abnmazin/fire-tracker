@@ -52,3 +52,8 @@ body {
     padding-right: var(--sar);
   }
 }
+
+/* قفل التمرير عند فتح أي مودال أو قائمة جانبية */
+body:has(.fixed.inset-0) {
+  overflow: hidden;
+}

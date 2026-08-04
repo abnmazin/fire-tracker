@@ -267,6 +267,13 @@ const d8MonthsAgo = formatDate(new Date(today.getFullYear(), today.getMonth() - 
 const pad2 = (n) => String(n).padStart(2, '0');
 const to12Hour = (h) => { const hour = h % 12 || 12; return `${pad2(hour)}:${pad2(arguments[1] ?? 0)}`; };
 const formatAmPm = (h) => h >= 12 ? 'م' : 'ص';
+
+function DateInput({ value, onChange, disabled, className }) {
+  return (
+    <input type="date" dir="ltr" className={`w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none text-sm ${className || ''}`} value={value || ''} onChange={e => onChange && onChange(e.target.value)} disabled={disabled} />
+  );
+}
+
 const formatDisplayDate = (dateStr) => {
   if (!dateStr) return '';
   const s = String(dateStr).trim();
@@ -858,7 +865,7 @@ export default function App() {
           <button onClick={() => setIsMobileMenuOpen(true)} className="p-1 hover:bg-red-700 rounded-lg transition-colors"><Menu className="w-7 h-7" /></button>
         </header>
 
-        <main className="flex-1 p-4 md:p-6 overflow-y-auto w-full max-w-full relative z-0 bg-gray-50" style={{ paddingBottom: isStandalone ? 'var(--sab, 0px)' : undefined }}>
+        <main className="flex-1 p-4 md:p-6 overflow-y-auto w-full max-w-full bg-gray-50" style={{ paddingBottom: isStandalone ? 'var(--sab, 0px)' : undefined }}>
           {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={handleSaveContacts} user={currentUser} locationTree={locationTree} locationPaths={locationPaths} inspectionPolicies={inspectionPolicies} onQuickAddLocation={handleQuickAddLocation} />}
           {currentView === 'list' && <ExtinguishersList extinguishers={extinguishers} setExtinguishers={setExtinguishers} user={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} locationTree={locationTree} locationPaths={locationPaths} contacts={contacts} inspectionPolicies={inspectionPolicies} onQuickAddLocation={handleQuickAddLocation} />}
           {currentView === 'report' && <ReportPage extinguishers={extinguishers} setExtinguishers={setExtinguishers} user={currentUser} locationTree={locationTree} onQuickAddLocation={handleQuickAddLocation} db={db} fbUser={fbUser} appId={appId} logAction={logAction} auditLogs={auditLogs} setAuditLogs={setAuditLogs} />}
@@ -2770,7 +2777,7 @@ function ActionModal({ exts, onClose, onSubmit, userRole }) {
             </p>
           </div>
 
-          <div><label className="block text-sm font-bold text-gray-700 mb-1">تاريخ الإجراء</label><input required type="date" className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" value={date} onChange={e => setDate(e.target.value)} /></div>
+          <div><label className="block text-sm font-bold text-gray-700 mb-1">تاريخ الإجراء</label><DateInput value={date} onChange={setDate} /></div>
           <div><label className="block text-sm font-bold text-gray-700 mb-1">النتيجة / الحالة</label><select className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" value={condition} onChange={e => setCondition(e.target.value)}><option value="سليمة">سليمة وجاهزة للعمل</option><option value="تالفة">تالفة / تحتاج استبدال</option><option value="تسريب">يوجد تسريب</option><option value="إعادة تعبئة">تحتاج إعادة تعبئة</option></select></div>
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-1">ملاحظات (اختياري)</label>
@@ -2867,7 +2874,7 @@ function AddExtinguisherModal({ onClose, onAdd, locationTree, onAddLocation, ini
             {formData.location && <p className="text-xs text-green-600 mt-1">تم تعبئة الموقع من الفلتر المحدد: <span className="font-bold">{formData.location}</span></p>}
           </div>
           <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="inCabinet" className="w-4 h-4 text-red-600 rounded" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="inCabinet" className="text-sm font-bold text-gray-700 cursor-pointer select-none">مثبتة داخل كابينة</label></div>
-          <div><label className="block text-sm text-gray-600 mb-1">تاريخ الإنشاء / الصيانة</label><input required type="date" dir="ltr" lang="en-GB" className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
+          <div><label className="block text-sm text-gray-600 mb-1">تاريخ الإنشاء / الصيانة</label><DateInput value={formData.lastDate} onChange={v => setFormData({...formData, lastDate: v})} /></div>
           <div><label className="block text-sm font-bold text-gray-700 mb-1">النتيجة / الحالة</label><select className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-red-500 outline-none bg-gray-50" value={formData.condition} onChange={e => setFormData({...formData, condition: e.target.value})}><option value="سليمة">سليمة وجاهزة للعمل</option><option value="تالفة">تالفة / تحتاج استبدال</option><option value="تسريب">يوجد تسريب</option><option value="إعادة تعبئة">تحتاج إعادة تعبئة</option></select></div>
           <div><label className="block text-sm font-bold text-gray-700 mb-1">ملاحظات (اختياري)</label><textarea className="w-full border p-3 rounded-lg focus:ring-2 focus:ring-red-500 h-24 text-sm outline-none bg-gray-50" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} placeholder="ملاحظات حول الطفاية..." /></div>
           <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-red-600 text-white py-2.5 rounded-lg font-bold hover:bg-red-700 shadow-md">حفظ</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-bold hover:bg-gray-300">إلغاء</button></div>
@@ -2902,7 +2909,7 @@ function EditExtinguisherModal({ ext, onClose, onEdit, locationTree, onAddLocati
             />
           </div>
           <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="editInCabinet" className="w-4 h-4 text-green-600 rounded focus:ring-green-500 cursor-pointer" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="editInCabinet" className="text-sm font-bold text-gray-700 cursor-pointer select-none">مثبتة داخل كابينة</label></div>
-          <div><label className="block text-sm text-gray-600 mb-1">تاريخ آخر صيانة شاملة</label><input required type="date" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
+          <div><label className="block text-sm text-gray-600 mb-1">تاريخ آخر صيانة شاملة</label><DateInput value={formData.lastDate} onChange={v => setFormData({...formData, lastDate: v})} /></div>
           <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-green-600 text-white py-2.5 rounded-lg font-bold hover:bg-green-700 shadow-md">حفظ التعديلات</button><button type="button" onClick={onClose} className="flex-1 bg-gray-100 text-gray-800 py-2.5 rounded-lg font-bold hover:bg-gray-200">إلغاء</button></div>
         </form>
       </div>
@@ -3384,7 +3391,7 @@ function InspectionPolicyCenter({ topLevelLocations, inspectionPolicies, setInsp
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">تاريخ البداية</label>
-            <input type="date" dir="ltr" lang="en-GB" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" value={selectedPolicy?.startDate || defaultStartDate} onChange={(e) => updateSelectedPolicy('startDate', e.target.value)} disabled={!selectedPolicy || !selectedPolicy.enabled} />
+            <DateInput value={selectedPolicy?.startDate || defaultStartDate} onChange={(v) => updateSelectedPolicy('startDate', v)} disabled={!selectedPolicy || !selectedPolicy.enabled} />
           </div>
         </div>
 
