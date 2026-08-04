@@ -10,6 +10,14 @@ body,
   overscroll-behavior: none;
 }
 
+/* Safe area insets — تختلف تلقائياً حسب الجهاز (iPhone notch/Dynamic Island/home indicator) */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
 body {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -32,5 +40,10 @@ body {
   }
   .pwa-standalone-only {
     display: initial;
+  }
+  /* Sidebar يتجنب notch/Dynamic Island من الأعلى ومن home indicator من الأسفل */
+  .sidebar-safe {
+    top: var(--sat) !important;
+    bottom: var(--sab) !important;
   }
 }

@@ -755,7 +755,7 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 z-40 md:hidden transition-opacity" onClick={() => setIsMobileMenuOpen(false)}></div>
       )}
 
-      <aside className={`fixed inset-y-0 right-0 z-50 w-64 bg-red-800 text-white flex flex-col shadow-2xl transform transition-transform duration-300 md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <aside className={`sidebar-safe fixed inset-y-0 right-0 z-50 w-64 bg-red-800 text-white flex flex-col shadow-2xl transform transition-transform duration-300 md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ top: isStandalone ? 'var(--sat, 0px)' : undefined, bottom: isStandalone ? 'var(--sab, 0px)' : undefined, right: isStandalone ? 'var(--sar, 0px)' : undefined }}>
         <div className="p-4 md:p-6 flex justify-between items-center md:flex-col border-b border-red-700 bg-red-800">
           <div className="flex items-center md:flex-col gap-3 md:gap-0 w-full md:justify-center">
             <img src={siteSettings.logoUrl} alt="شعار" className="w-10 h-10 md:w-16 md:h-16 rounded-full border border-red-200 object-cover bg-white" />
@@ -830,7 +830,7 @@ export default function App() {
             أنت غير متصل — البيانات تعمل محلياً{pendingCount > 0 && <span> ({pendingCount} عملية بانتظار المزامنة)</span>} وستتم المزامنة تلقائياً عند العودة
           </div>
         )}
-        <header className="md:hidden bg-red-800 text-white p-4 flex justify-between items-center shadow-md shrink-0 relative z-10">
+        <header className="md:hidden bg-red-800 text-white p-4 flex justify-between items-center shadow-md shrink-0 relative z-10" style={{ paddingTop: isStandalone ? 'calc(var(--sat, 0px) + 16px)' : undefined }}>
           <div className="flex items-center gap-3">
             <img src={siteSettings.logoUrl} alt="شعار" className="w-10 h-10 rounded-full border border-red-200 object-cover bg-white shadow-sm" />
             <div>
@@ -840,7 +840,7 @@ export default function App() {
           <button onClick={() => setIsMobileMenuOpen(true)} className="p-1 hover:bg-red-700 rounded-lg transition-colors"><Menu className="w-7 h-7" /></button>
         </header>
 
-        <main className="flex-1 p-4 md:p-6 overflow-y-auto w-full max-w-full relative z-0 bg-gray-50">
+        <main className="flex-1 p-4 md:p-6 overflow-y-auto w-full max-w-full relative z-0 bg-gray-50" style={{ paddingBottom: isStandalone ? 'var(--sab, 0px)' : undefined }}>
           {currentView === 'dashboard' && <Dashboard extinguishers={extinguishers} contacts={contacts} setContacts={handleSaveContacts} user={currentUser} locationTree={locationTree} locationPaths={locationPaths} inspectionPolicies={inspectionPolicies} onQuickAddLocation={handleQuickAddLocation} />}
           {currentView === 'list' && <ExtinguishersList extinguishers={extinguishers} setExtinguishers={setExtinguishers} user={currentUser} logAction={logAction} db={db} fbUser={fbUser} appId={appId} locationTree={locationTree} locationPaths={locationPaths} contacts={contacts} inspectionPolicies={inspectionPolicies} onQuickAddLocation={handleQuickAddLocation} />}
           {currentView === 'report' && <ReportPage extinguishers={extinguishers} setExtinguishers={setExtinguishers} user={currentUser} locationTree={locationTree} onQuickAddLocation={handleQuickAddLocation} db={db} fbUser={fbUser} appId={appId} logAction={logAction} auditLogs={auditLogs} setAuditLogs={setAuditLogs} />}
@@ -854,7 +854,7 @@ export default function App() {
       </div>
 
       {notifToast && (
-        <div className="fixed bottom-4 inset-x-4 z-[70] flex justify-center pointer-events-none">
+        <div className="fixed bottom-4 inset-x-4 z-[70] flex justify-center pointer-events-none" style={{ marginBottom: isStandalone ? 'var(--sab, 0px)' : undefined }}>
           <div className="pointer-events-auto bg-white border border-emerald-200 rounded-xl shadow-2xl px-4 py-3 flex items-start gap-3 max-w-md w-full max-h-[40vh] overflow-y-auto">
             <Bell className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
@@ -1050,7 +1050,7 @@ function NotifStatsPopup({ notif, onClose }) {
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/50 flex items-end md:items-center justify-center p-0 md:p-4" onClick={onClose}>
-      <div className="bg-white w-full md:max-w-md md:rounded-2xl rounded-t-2xl shadow-2xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white w-full md:max-w-md md:rounded-2xl rounded-t-2xl shadow-2xl max-h-[80vh] flex flex-col" style={{ maxHeight: 'calc(80vh - var(--sab, 0px))' }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-gray-100 shrink-0">
           <div className="min-w-0">
             <h3 className="font-bold text-gray-800 text-sm truncate">{notif.title}</h3>
