@@ -619,7 +619,7 @@ export default function App() {
     } catch (e) {}
   };
 
-  // ===== نظام الإشعارات (FCM / Web Push) =====
+  // ===== نظام التبليغات (FCM / Web Push) =====
   const [notifSupported, setNotifSupported] = useState(false);
   const [notifToken, setNotifToken] = useState(null);
   const [notifBusy, setNotifBusy] = useState(false);
@@ -714,9 +714,9 @@ export default function App() {
       const tok = await requestNotifToken(app);
       if (db) await registerToken(db, appId, tok, currentUserRef.current);
       setNotifToken(tok);
-      setNotifMsg('تم تفعيل الإشعارات بنجاح.');
+      setNotifMsg('تم تفعيل التبليغات بنجاح.');
     } catch (e) {
-      setNotifMsg('تعذر التفعيل: ' + (e.message === 'denied' ? 'تم رفض الإذن من المتصفح.' : e.message === 'unsupported' ? 'هذا المتصفح لا يدعم الإشعارات.' : e.message === 'no-token' ? 'لم يتم الحصول على رمز. تحقق من مفاتيح VAPID في إعدادات المشروع.' : String(e)));
+      setNotifMsg('تعذر التفعيل: ' + (e.message === 'denied' ? 'تم رفض الإذن من المتصفح.' : e.message === 'unsupported' ? 'هذا المتصفح لا يدعم التبليغات.' : e.message === 'no-token' ? 'لم يتم الحصول على رمز. تحقق من مفاتيح VAPID في إعدادات المشروع.' : String(e)));
     } finally { setNotifBusy(false); }
   };
 
@@ -726,7 +726,7 @@ export default function App() {
     await unregisterToken(db, appId, notifToken);
     setNotifToken(null);
     setNotifBusy(false);
-    setNotifMsg('تم إيقاف الإشعارات.');
+    setNotifMsg('تم إيقاف التبليغات.');
   };
 
   const handleCustomNotifSend = async () => {
@@ -779,7 +779,7 @@ export default function App() {
             <SidebarBtn icon={LayoutDashboard} label="لوحة التحكم" active={currentView === 'dashboard'} onClick={() => navigateTo('dashboard')} />
             <SidebarBtn icon={FireExtinguisher} label="سجل الطفايات" active={currentView === 'list'} onClick={() => navigateTo('list')} />
             <SidebarBtn icon={FileText} label="التقارير" active={currentView === 'report'} onClick={() => navigateTo('report')} />
-            <SidebarBtn icon={Bell} label="الإشعارات" active={currentView === 'notifications'} onClick={() => navigateTo('notifications')} />
+            <SidebarBtn icon={Bell} label="التبليغات" active={currentView === 'notifications'} onClick={() => navigateTo('notifications')} />
             {(currentUser.role === 'developer' || currentUser.role === 'admin' || currentUser.role === 'father') && (
               <SidebarBtn icon={Activity} label="متابعة الإنجاز" active={currentView === 'performance'} onClick={() => navigateTo('performance')} />
             )}
@@ -910,8 +910,8 @@ function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, on
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-red-100 text-red-700 flex items-center justify-center"><Bell className="w-5 h-5" /></div>
             <div>
-              <h2 className="font-bold text-gray-800">الإشعارات</h2>
-              <p className="text-xs text-gray-500">فعّل أو أوقف استقبال الإشعارات وشاهد سجل الإشعارات</p>
+              <h2 className="font-bold text-gray-800">التبليغات</h2>
+              <p className="text-xs text-gray-500">فعّل أو أوقف استقبال التبليغات وشاهد سجل التبليغات</p>
             </div>
           </div>
           {user.role === 'developer' && (
@@ -924,7 +924,7 @@ function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, on
           <div className="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-bold text-gray-800">الإشعارات التلقائية</p>
+                <p className="text-sm font-bold text-gray-800">التبليغات التلقائية</p>
                 <p className="text-xs text-gray-500 mt-0.5">إشعارات تغيّر حالة الطفايات وتنبيهات الانتهاء القريب تُرسل تلقائياً بواسطة النظام</p>
               </div>
               <button
@@ -942,24 +942,24 @@ function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, on
           {notifSupported ? (
             notifToken ? (
               <button onClick={onDisableNotif} disabled={notifBusy} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
-                إيقاف الإشعارات
+                إيقاف التبليغات
               </button>
             ) : (
               <button onClick={onEnableNotif} disabled={notifBusy} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
-                {notifBusy ? 'جاري التفعيل...' : 'تفعيل الإشعارات'}
+                {notifBusy ? 'جاري التفعيل...' : 'تفعيل التبليغات'}
               </button>
             )
           ) : (
-            <span className="text-sm text-gray-500">المتصفح الحالي لا يدعم الإشعارات.</span>
+            <span className="text-sm text-gray-500">المتصفح الحالي لا يدعم التبليغات.</span>
           )}
-          {notifToken && <span className="text-xs text-emerald-700 font-medium">✓ الإشعارات مفعّلة</span>}
+          {notifToken && <span className="text-xs text-emerald-700 font-medium">✓ التبليغات مفعّلة</span>}
         </div>
         {notifMsg && <p className="text-xs mt-3 text-gray-600">{notifMsg}</p>}
       </div>
 
       {canSend && (
         <div className="bg-white rounded-xl shadow-sm p-4 md:p-6 border border-gray-200">
-          <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center"><Send className="w-4 h-4 ml-1.5 text-emerald-600"/> إرسال إشعار للجميع</h3>
+          <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center"><Send className="w-4 h-4 ml-1.5 text-emerald-600"/> إرسال تبليغ للجميع</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <input
               type="text"
@@ -986,7 +986,7 @@ function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, on
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         <div className="flex items-center gap-2 p-4 md:p-5 border-b border-gray-100">
           <History className="w-5 h-5 text-gray-400" />
-          <h3 className="font-bold text-gray-800">سجل الإشعارات</h3>
+          <h3 className="font-bold text-gray-800">سجل التبليغات</h3>
           <span className="text-xs text-gray-400">({notifications.length})</span>
         </div>
         <div className="divide-y divide-gray-100">
