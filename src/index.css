@@ -41,9 +41,4 @@ body {
   .pwa-standalone-only {
     display: initial;
   }
-  /* Sidebar يتجنب notch/Dynamic Island من الأعلى ومن home indicator من الأسفل */
-  .sidebar-safe {
-    top: var(--sat) !important;
-    bottom: var(--sab) !important;
-  }
 }

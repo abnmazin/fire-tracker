@@ -755,7 +755,7 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 z-40 md:hidden transition-opacity" onClick={() => setIsMobileMenuOpen(false)}></div>
       )}
 
-      <aside className={`sidebar-safe fixed inset-y-0 right-0 z-50 w-64 bg-red-800 text-white flex flex-col shadow-2xl transform transition-transform duration-300 md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`} style={{ top: isStandalone ? 'var(--sat, 0px)' : undefined, bottom: isStandalone ? 'var(--sab, 0px)' : undefined, right: isStandalone ? 'var(--sar, 0px)' : undefined }}>
+      <aside className={`fixed inset-y-0 right-0 z-50 w-64 bg-red-800 text-white flex flex-col shadow-2xl transform transition-transform duration-300 md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`} style={isStandalone ? { top: 'var(--sat, 0px)', bottom: 'var(--sab, 0px)', right: 'var(--sar, 0px)' } : undefined}>
         <div className="p-4 md:p-6 flex justify-between items-center md:flex-col border-b border-red-700 bg-red-800">
           <div className="flex items-center md:flex-col gap-3 md:gap-0 w-full md:justify-center">
             <img src={siteSettings.logoUrl} alt="شعار" className="w-10 h-10 md:w-16 md:h-16 rounded-full border border-red-200 object-cover bg-white" />
