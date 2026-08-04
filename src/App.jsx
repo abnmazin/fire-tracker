@@ -755,7 +755,7 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 z-40 md:hidden transition-opacity" onClick={() => setIsMobileMenuOpen(false)}></div>
       )}
 
-      <aside className={`fixed inset-y-0 right-0 z-50 w-64 bg-red-800 text-white flex flex-col shadow-2xl transform transition-transform duration-300 md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`} style={isStandalone ? { top: 'var(--sat, 0px)', bottom: 'var(--sab, 0px)', right: 'var(--sar, 0px)' } : undefined}>
+      <aside className={`sidebar-safe fixed inset-y-0 right-0 z-50 w-64 bg-red-800 text-white flex flex-col shadow-2xl transform transition-transform duration-300 md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="p-4 md:p-6 flex justify-between items-center md:flex-col border-b border-red-700 bg-red-800">
           <div className="flex items-center md:flex-col gap-3 md:gap-0 w-full md:justify-center">
             <img src={siteSettings.logoUrl} alt="شعار" className="w-10 h-10 md:w-16 md:h-16 rounded-full border border-red-200 object-cover bg-white" />
@@ -794,17 +794,17 @@ export default function App() {
             )}
           </nav>
 
-          <div className="p-4 border-t border-red-700 mt-auto pb-6 md:pb-4 flex flex-col items-center">
+          <div className="p-4 border-t border-red-700 mt-auto flex flex-col items-center gap-3" style={{ paddingBottom: isStandalone ? 'var(--sab, 0px)' : undefined }}>
             {installPrompt && !isStandalone && (
-              <button onClick={handleInstallApp} className="flex items-center justify-center w-full p-2.5 text-red-900 bg-white hover:bg-red-100 rounded-lg transition-colors mb-5 font-medium shadow">
+              <button onClick={handleInstallApp} className="flex items-center justify-center w-full p-2.5 text-red-900 bg-white hover:bg-red-100 rounded-lg transition-colors font-medium shadow">
                 <Download className="w-5 h-5 ml-2" /> تثبيت التطبيق على الجهاز
               </button>
             )}
-            <button onClick={() => setCurrentUser(null)} className="flex items-center justify-center w-full p-2.5 text-red-200 hover:text-white bg-red-900/50 hover:bg-red-700 rounded-lg transition-colors mb-5 font-medium">
+            <button onClick={() => setCurrentUser(null)} className="flex items-center justify-center w-full p-2.5 text-red-200 hover:text-white bg-red-900/50 hover:bg-red-700 rounded-lg transition-colors font-medium">
               <LogOut className="w-5 h-5 ml-2" /> تسجيل الخروج
             </button>
-            <div className="text-center border-t border-red-700/50 pt-4 w-full">
-              <p className="text-[11px] text-red-200 font-medium">© 2026<br/>جميع الحقوق محفوظة.</p>
+            <div className="text-center border-t border-red-700/50 pt-3 w-full">
+              <p className="text-[11px] text-red-200 font-medium">© 2026 جميع الحقوق محفوظة.</p>
               <p className="text-[10px] text-red-300/80 mt-1 font-mono">Developed by <a href="https://anydesire.dev" target="_blank" rel="noreferrer" className="font-bold text-white opacity-100 hover:underline">AnyDesire</a></p>
             </div>
           </div>

@@ -42,3 +42,11 @@ body {
     display: initial;
   }
 }
+
+/* Sidebar safe area — الجوال فقط (أقل من md breakpoint) */
+@media (display-mode: standalone) and (max-width: 767px) {
+  .sidebar-safe {
+    top: var(--sat) !important;
+    bottom: var(--sab) !important;
+  }
+}
