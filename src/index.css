@@ -43,10 +43,12 @@ body {
   }
 }
 
-/* Sidebar safe area — الجوال فقط (أقل من md breakpoint) */
+/* Sidebar content safe area — الجوال فقط (أقل من md breakpoint) */
 @media (display-mode: standalone) and (max-width: 767px) {
-  .sidebar-safe {
-    top: var(--sat) !important;
-    bottom: var(--sab) !important;
+  .sidebar-content {
+    padding-top: var(--sat);
+    padding-bottom: var(--sab);
+    padding-left: var(--sal);
+    padding-right: var(--sar);
   }
 }

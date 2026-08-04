@@ -755,19 +755,19 @@ export default function App() {
         <div className="fixed inset-0 bg-black/60 z-40 md:hidden transition-opacity" onClick={() => setIsMobileMenuOpen(false)}></div>
       )}
 
-      <aside className={`sidebar-safe fixed inset-y-0 right-0 z-50 w-64 bg-red-800 text-white flex flex-col shadow-2xl transform transition-transform duration-300 md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-        <div className="p-4 md:p-6 flex justify-between items-center md:flex-col border-b border-red-700 bg-red-800">
-          <div className="flex items-center md:flex-col gap-3 md:gap-0 w-full md:justify-center">
-            <img src={siteSettings.logoUrl} alt="شعار" className="w-10 h-10 md:w-16 md:h-16 rounded-full border border-red-200 object-cover bg-white" />
-            <div className="md:mt-3 text-center flex-1 md:flex-none">
-              <h1 className="text-sm md:text-xl font-bold leading-tight">{siteSettings.name}</h1>
-              <p className="hidden md:block text-xs text-red-200 mt-1">نظام تتبع الطفايات</p>
+      <aside className={`fixed inset-y-0 right-0 z-50 w-64 bg-red-800 text-white flex flex-col shadow-2xl transform transition-transform duration-300 md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="sidebar-content flex flex-col flex-1 overflow-y-auto">
+          <div className="p-4 md:p-6 flex justify-between items-center md:flex-col border-b border-red-700 bg-red-800">
+            <div className="flex items-center md:flex-col gap-3 md:gap-0 w-full md:justify-center">
+              <img src={siteSettings.logoUrl} alt="شعار" className="w-10 h-10 md:w-16 md:h-16 rounded-full border border-red-200 object-cover bg-white" />
+              <div className="md:mt-3 text-center flex-1 md:flex-none">
+                <h1 className="text-sm md:text-xl font-bold leading-tight">{siteSettings.name}</h1>
+                <p className="hidden md:block text-xs text-red-200 mt-1">نظام تتبع الطفايات</p>
+              </div>
+              <button className="md:hidden text-red-100 hover:text-white p-1" onClick={() => setIsMobileMenuOpen(false)}><X className="w-6 h-6" /></button>
             </div>
-            <button className="md:hidden text-red-100 hover:text-white p-1" onClick={() => setIsMobileMenuOpen(false)}><X className="w-6 h-6" /></button>
           </div>
-        </div>
-        
-        <div className="flex flex-col flex-1 overflow-y-auto">
+
           <div className="p-4 border-b border-red-700/50 flex flex-col justify-center items-center text-center bg-red-900/30">
             <p className="text-sm text-red-100 font-bold">{currentUser.name}</p>
             <span className={`text-xs px-3 py-1 rounded-full mt-2 shadow-sm border ${getRoleColor(currentUser.role)}`}>
@@ -794,7 +794,7 @@ export default function App() {
             )}
           </nav>
 
-          <div className="p-4 border-t border-red-700 mt-auto flex flex-col items-center gap-3" style={{ paddingBottom: isStandalone ? 'var(--sab, 0px)' : undefined }}>
+          <div className="p-4 border-t border-red-700 mt-auto flex flex-col items-center gap-3">
             {installPrompt && !isStandalone && (
               <button onClick={handleInstallApp} className="flex items-center justify-center w-full p-2.5 text-red-900 bg-white hover:bg-red-100 rounded-lg transition-colors font-medium shadow">
                 <Download className="w-5 h-5 ml-2" /> تثبيت التطبيق على الجهاز
