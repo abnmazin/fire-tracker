@@ -898,7 +898,7 @@ function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, on
 
   const handleDelete = (n) => {
     if (!canDelete(n)) return;
-    if (!window.confirm('حذف هذا الإشعار نهائياً؟')) return;
+    if (!window.confirm('حذف هذا التبليغ نهائياً؟')) return;
     if (popup && popup.id === n.id) setPopup(null);
     onDeleteNotif(n.id);
   };
@@ -925,7 +925,7 @@ function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, on
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-bold text-gray-800">التبليغات التلقائية</p>
-                <p className="text-xs text-gray-500 mt-0.5">إشعارات تغيّر حالة الطفايات وتنبيهات الانتهاء القريب تُرسل تلقائياً بواسطة النظام</p>
+                <p className="text-xs text-gray-500 mt-0.5">تبليغات تغيّر حالة الطفايات وتنبيهات الانتهاء القريب تُرسل تلقائياً بواسطة النظام</p>
               </div>
               <button
                 onClick={() => onToggleAutoNotifs(!autoNotifs)}
@@ -964,14 +964,14 @@ function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, on
             <input
               type="text"
               className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-              placeholder="عنوان الإشعار"
+              placeholder="عنوان التبليغ"
               value={customNotif.title}
               onChange={(e) => setCustomNotif((n) => ({ ...n, title: e.target.value }))}
             />
             <input
               type="text"
               className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-              placeholder="نص الإشعار"
+              placeholder="نص التبليغ"
               value={customNotif.body}
               onChange={(e) => setCustomNotif((n) => ({ ...n, body: e.target.value }))}
             />
@@ -991,7 +991,7 @@ function NotificationsPage({ notifSupported, notifToken, notifBusy, notifMsg, on
         </div>
         <div className="divide-y divide-gray-100">
           {notifications.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-8">لا توجد إشعارات بعد.</p>
+            <p className="text-sm text-gray-400 text-center py-8">لا توجد تبليغات بعد.</p>
           )}
           {notifications.map((n) => {
             return (
@@ -1060,7 +1060,7 @@ function NotifStatsPopup({ notif, onClose }) {
         </div>
         <div className="overflow-y-auto p-4 space-y-4">
           <div>
-            <p className="text-xs font-bold text-gray-500 mb-2">من أعجب بالإشعار ({likers.length})</p>
+            <p className="text-xs font-bold text-gray-500 mb-2">من أعجب بالتبليغ ({likers.length})</p>
             {likers.length === 0 && <p className="text-xs text-gray-400">لا أحد أعجب بعد.</p>}
             {likers.map(([id, v]) => (
               <div key={id} className="flex items-center justify-between py-1.5 border-b border-gray-50">
@@ -1111,7 +1111,7 @@ function LoginScreen({ onLogin, users, siteSettings }) {
         
         <div className="mt-8 text-center border-t pt-5">
           <p className="text-xs text-gray-500 font-medium tracking-wide">© 2026 جميع الحقوق محفوظة.</p>
-          <p className="text-[10px] text-gray-400 mt-1 font-mono">Developed by <a href="https://abnmazin.engineer" target="_blank" rel="noreferrer" className="font-bold text-gray-600 hover:underline">abnmazin.engineer</a></p>
+          <p className="text-[10px] text-gray-400 mt-1 font-mono">Developed by <a href="https://AnyDesire.dev" target="_blank" rel="noreferrer" className="font-bold text-gray-600 hover:underline">AnyDesire</a></p>
         </div>
       </div>
     </div>
