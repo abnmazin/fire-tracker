@@ -2494,11 +2494,7 @@ function ExtinguishersList({ extinguishers, setExtinguishers, user, logAction, d
               onAddLocation={() => { const name = prompt('اسم الموقع الفرعي الجديد:'); if (name && name.trim() && filterMainLocation !== 'All') { const parentId = locationTree.find(n => n.name === filterMainLocation)?.id; if (parentId) onQuickAddLocation(parentId, name.trim()); } }}
               addLabel="إضافة موقع فرعي"
             />
-            {(filterMainLocation !== 'All' || filterSubLocation !== 'All' || filterType !== 'All' || searchTerm) && (
-              <button onClick={clearFilters} title="مسح جميع الفلاتر" className="flex items-center px-3 py-2 text-xs font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg transition-colors whitespace-nowrap">
-                <X className="w-3.5 h-3.5 ml-1" /> مسح الفلاتر
-              </button>
-            )}
+            
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:items-center">
             <div className="relative w-full sm:w-48 lg:w-56"><Search className="w-5 h-5 absolute right-3 top-2.5 text-gray-400" /><input type="text" placeholder="بحث..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-3 pr-10 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm" /></div>
@@ -2871,7 +2867,7 @@ function AddExtinguisherModal({ onClose, onAdd, locationTree, onAddLocation, ini
             {formData.location && <p className="text-xs text-green-600 mt-1">تم تعبئة الموقع من الفلتر المحدد: <span className="font-bold">{formData.location}</span></p>}
           </div>
           <div className="flex items-center gap-2 bg-gray-50 p-3 rounded border border-gray-200"><input type="checkbox" id="inCabinet" className="w-4 h-4 text-red-600 rounded" checked={formData.inCabinet} onChange={e => setFormData({...formData, inCabinet: e.target.checked})} /><label htmlFor="inCabinet" className="text-sm font-bold text-gray-700 cursor-pointer select-none">مثبتة داخل كابينة</label></div>
-          <div><label className="block text-sm text-gray-600 mb-1">تاريخ الإنشاء / الصيانة</label><input required type="date" className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
+          <div><label className="block text-sm text-gray-600 mb-1">تاريخ الإنشاء / الصيانة</label><input required type="date" dir="ltr" lang="en-GB" className="w-full border p-2 rounded bg-gray-50 outline-none" value={formData.lastDate} onChange={e => setFormData({...formData, lastDate: e.target.value})} /></div>
           <div><label className="block text-sm font-bold text-gray-700 mb-1">النتيجة / الحالة</label><select className="w-full border p-2 rounded-lg focus:ring-2 focus:ring-red-500 outline-none bg-gray-50" value={formData.condition} onChange={e => setFormData({...formData, condition: e.target.value})}><option value="سليمة">سليمة وجاهزة للعمل</option><option value="تالفة">تالفة / تحتاج استبدال</option><option value="تسريب">يوجد تسريب</option><option value="إعادة تعبئة">تحتاج إعادة تعبئة</option></select></div>
           <div><label className="block text-sm font-bold text-gray-700 mb-1">ملاحظات (اختياري)</label><textarea className="w-full border p-3 rounded-lg focus:ring-2 focus:ring-red-500 h-24 text-sm outline-none bg-gray-50" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} placeholder="ملاحظات حول الطفاية..." /></div>
           <div className="pt-2 flex gap-2"><button type="submit" className="flex-1 bg-red-600 text-white py-2.5 rounded-lg font-bold hover:bg-red-700 shadow-md">حفظ</button><button type="button" onClick={onClose} className="flex-1 bg-gray-200 text-gray-800 py-2.5 rounded-lg font-bold hover:bg-gray-300">إلغاء</button></div>
@@ -3388,7 +3384,7 @@ function InspectionPolicyCenter({ topLevelLocations, inspectionPolicies, setInsp
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">تاريخ البداية</label>
-            <input type="date" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" value={selectedPolicy?.startDate || defaultStartDate} onChange={(e) => updateSelectedPolicy('startDate', e.target.value)} disabled={!selectedPolicy || !selectedPolicy.enabled} />
+            <input type="date" dir="ltr" lang="en-GB" className="w-full border border-gray-300 p-2.5 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none" value={selectedPolicy?.startDate || defaultStartDate} onChange={(e) => updateSelectedPolicy('startDate', e.target.value)} disabled={!selectedPolicy || !selectedPolicy.enabled} />
           </div>
         </div>
 
